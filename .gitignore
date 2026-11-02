@@ -1,0 +1,9 @@
+tests/.build/
+*.bak
+Thumbs.db
+
+# Real saved files hold routes, play times and other players' names.
+WTF/
+SavedVariables/
+RoadToSixty.lua
+RoadToSixty_Chronicle.lua
