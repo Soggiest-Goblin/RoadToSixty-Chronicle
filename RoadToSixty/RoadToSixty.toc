@@ -4,7 +4,7 @@
 ## Author: Jordan, fork by Soggiest_Goblin
 ## IconTexture: Interface\Icons\Ability_Hunter_Pathfinding
 ## AddonCompartmentFunc: RoadToSixty_OnAddonCompartmentClick
-## Version: 1.18.0-chronicle.1
+## Version: @project-version@
 ## SavedVariables: RoadToSixtyDB
 ## SavedVariablesPerCharacter: RoadToSixtyCharDB
 ## OptionalDeps: RoadToSixty_Sync

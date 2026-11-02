@@ -2,7 +2,7 @@
 ## Title: Road to Sixty: With Friends (Tracking)
 ## Notes: Extra journey tracking on top of Road to Sixty, syncing and the With Friends viewer
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
-## Version: 1.2.0
+## Version: @project-version@
 ## RequiredDeps: RoadToSixty
 ## SavedVariables: RoadToSixtyChronicleDB
 

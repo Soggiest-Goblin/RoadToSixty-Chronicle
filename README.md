@@ -69,6 +69,11 @@ To run the tests on Windows:
 
 They need Microsoft Edge. The first run downloads the Fengari Lua VM to `tests/.build`, so no Lua install is needed.
 
+## Publishing
+
+CurseForge builds releases from this repo through a GitHub webhook, using `.pkgmeta`. Both `.toc` files take their version from the tag, so a copy installed with `scripts/install.ps1` shows the unfilled `@project-version@`.
+
+A pushed tag starts a build: `v1.0.0` for a release, `v1.0.0-beta1` for a beta, and `v1.0.0-alpha1` for an alpha.
 ## Road to Sixty
 
 Road to Sixty is Jordan's addon. The `RoadToSixty` folder is a fork of version 1.18.0, made with his approval, and its code and art remain his work. The fork keeps his folder and saved variable names, so existing journeys carry over and it replaces his addon rather than running beside it.

@@ -1,0 +1,12 @@
+package-as: RoadToSixty-WithFriends
+
+# The repo holds two addons, and each must sit at the top of the zip.
+move-folders:
+  RoadToSixty-WithFriends/RoadToSixty: RoadToSixty
+  RoadToSixty-WithFriends/RoadToSixty_Chronicle: RoadToSixty_Chronicle
+
+ignore:
+  - docs
+  - scripts
+  - tests
+  - README.md
