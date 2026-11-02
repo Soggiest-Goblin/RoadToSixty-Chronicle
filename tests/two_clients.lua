@@ -77,7 +77,7 @@ end
 clients.Zed = Client("Zed", "Bromm")
 clients.Bromm = Client("Bromm", "Zed")
 for _, c in pairs(clients) do
-  assert(load(CHRONICLE_SRC, "Chronicle.lua", "t", c.env))("RoadToSixty_Chronicle")
+  assert(load(CHRONICLE_SRC, "Chronicle.lua", "t", c.env))("RoadToSixty_Chronicle", {})
   c.fire(nil, "ADDON_LOADED", "RoadToSixty_Chronicle")
   c.fire(nil, "PLAYER_LOGIN")
 end

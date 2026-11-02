@@ -56,7 +56,7 @@ TaxiNodeName=function(i) return i==1 and "Stormwind" or "Sentinel Hill" end
 TaxiNodeCost=function() return 500 end
 
 local chunk = assert(load(CHRONICLE_SRC, "Chronicle.lua"))
-chunk("RoadToSixty_Chronicle")
+chunk("RoadToSixty_Chronicle", {})
 local fire=function(e,...) frameScript(nil,e,...) end
 fire("ZONE_CHANGED")                   -- before login: must be ignored
 fire("ADDON_LOADED","RoadToSixty_Chronicle")

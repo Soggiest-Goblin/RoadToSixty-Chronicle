@@ -2,8 +2,10 @@
 ## Title: Road to Sixty: Chronicle
 ## Notes: Extra journey tracking on top of Road to Sixty, for the Chronicle Viewer
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
-## Version: 1.0.0
+## Version: 1.1.0
 ## RequiredDeps: RoadToSixty
 ## SavedVariables: RoadToSixtyChronicleDB
 
 Chronicle.lua
+Settings.lua
+MinimapButton.lua

@@ -8,25 +8,43 @@ The goal is to let players sync journeys in game and watch them in Road to Sixty
 
 | Part | State |
 |---|---|
-| Extra tracking (`Chronicle.lua`) | Built; tested only on simulated clients |
-| Offline viewer (`Viewer/index.html`) | Built; tested only on generated data in Road to Sixty's format |
+| Extra tracking (`Chronicle.lua`) | Built; recording checked on one live Classic Era character |
+| Settings page (`Settings.lua`) | Built; tested only on simulated clients |
+| Minimap button (`MinimapButton.lua`) | Built; tested only on simulated clients, dragging not tested |
+| Offline viewer (`Viewer/index.html`) | Built; not yet opened with real saved files |
 | `/chron synctest` message measurement | Built; tested only on a simulated pair of Era clients |
 | In-game sync | Not started; waiting on real synctest results |
-| Road to Sixty map and panel changes | Not started; needs agreement with Jordan |
+| Multi-character replay on Road to Sixty's map | Not started; needs changes in Road to Sixty |
 
-**Nothing has run in a real game client yet.** The first live test will be on Classic Era, because Forever isn't playable yet.
+Forever isn't playable yet, so live testing happens on Classic Era.
 
 ## Layout
 
 ```
 RoadToSixty_Chronicle/   The addon, exactly as it installs
-  Chronicle.lua          All in-game code
+  Chronicle.lua          Tracking and the sync test
+  Settings.lua           The settings page
+  MinimapButton.lua      The minimap button
   Viewer/index.html      Single-file offline viewer
   README.md              Player instructions
 docs/DESIGN.md           How it fits with Road to Sixty, and the sync plan
 scripts/install.ps1      Copies the addon into a game folder
 tests/                   Simulated client tests
 ```
+
+## Testing with a friend
+
+You don't need any tools for this. Both players need Road to Sixty installed and running in the same game on the same realm.
+
+1. Sign in to GitHub, open this repo, and choose **Code**, then **Download ZIP**.
+2. Unzip it and copy the `RoadToSixty_Chronicle` folder into that game's `Interface\AddOns` folder, such as `World of Warcraft\_classic_era_\Interface\AddOns`.
+3. Fully restart WoW, because `/reload` doesn't pick up new addon files.
+4. Log in. You should see a book button on the minimap, and `/chron` should report what has been recorded.
+5. Right-click the book button to check the settings page, and drag the button to check it moves.
+6. Get into a party together. One player runs `/chron synctest <other character's name>` while the other just stays online, because their addon answers by itself. Wait for the line starting `Saved.`, then swap and repeat.
+7. Send back the lines that test printed, plus any errors or anything that looked wrong.
+
+Testing doesn't share journeys between players yet, because in-game sync isn't built.
 
 ## Getting started
 

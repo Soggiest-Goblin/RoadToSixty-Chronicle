@@ -11,6 +11,8 @@ your own notes.
 ## In game
 
 - `/chron` shows what has been recorded so far
+- `/chron options` opens the settings page, also found under AddOns in the game's settings
+- The book button on the minimap opens the journey map with a left-click and the settings page with a right-click
 - `/chron note Finally got my mount!` pins a note to this spot on the map
 - `/chron export` reminds you where the files are
 - `/chron synctest <name>` measures addon messages with another Chronicle player

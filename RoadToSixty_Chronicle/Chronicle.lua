@@ -1,4 +1,4 @@
-local addonName = ...
+local addonName, ns = ...
 
 -- Records what Road to Sixty does not, for Viewer/index.html. Road to Sixty
 -- keeps the path, levels, quests, deaths, gear and groups; this adds where
@@ -7,10 +7,14 @@ local addonName = ...
 -- files: SavedVariables/RoadToSixty.lua and RoadToSixty_Chronicle.lua.
 --
 -- Road to Sixty's namespace is private to it, so nothing here calls into it.
+-- Settings.lua is the settings page; ns carries what it needs from this file.
 --
 --   RoadToSixtyChronicleDB = {
 --     version, build (client build the maps were read from), interface
 --     (the client's interface number, which tells the viewer which map art),
+--     off = { [what] = true } tracking turned off: an event kind below, or
+--     party or stats,
+--     minimap = { angle, hide } the minimap button,
 --     syncTests = results of /chron synctest, newest last,
 --     maps  = { [uiMapID] = { name, parent, type, c, n1, w1, n2, w2 } }: every
 --             map's world rectangle in yards, top left and bottom right
@@ -53,6 +57,7 @@ local PACK_INTERVAL = 60        -- seconds between writes of the buffers into th
 local NPC_REPEAT = 300          -- seconds before the same NPC counts as a new visit
 local MAP_DELAY = 5             -- seconds after login before reading the maps
 local WORLD_MAP = 947
+local MINIMAP_ANGLE = 170       -- where the minimap button starts, degrees
 local COSMIC_MAP = 946
 
 -- /chron synctest: how fast this client really moves addon messages between
@@ -128,6 +133,7 @@ local function WorldOf(unit)
 end
 
 local function Log(kind, ...)
+    if db.off[kind] then return end
     if not IsInInstance() then
         local c, x, y = WorldOf("player")
         if c then position.c, position.x, position.y = c, x, y end
@@ -185,8 +191,11 @@ end
 -- XP and gold ----------------------------------------------------------------------
 
 local function SampleStats()
-    local row = ("%d,%d,%d,%d,%d"):format(UnitLevel("player") or 0, UnitXP("player") or 0,
-        UnitXPMax("player") or 0, GetXPExhaustion() or 0, GetMoney() or 0)
+    if db.off.stats then return end
+    local xp, xpMax, money = UnitXP("player") or 0, UnitXPMax("player") or 0, GetMoney() or 0
+    -- These all read 0 while logging out; a real row has at least an XP bar or gold.
+    if xpMax == 0 and money == 0 then return end
+    local row = ("%d,%d,%d,%d,%d"):format(UnitLevel("player") or 0, xp, xpMax, GetXPExhaustion() or 0, money)
     if row == statsLast then return end
     statsLast = row
     statsBuffer[#statsBuffer + 1] = Now() .. "," .. row .. ";"
@@ -242,7 +251,7 @@ local function TrackUnit(unit, t)
 end
 
 local function SampleParty()
-    if IsInInstance() or not IsInGroup() then return end
+    if db.off.party or IsInInstance() or not IsInGroup() then return end
     local t = Now()
     for _, unit in ipairs(TrackedUnits()) do
         TrackUnit(unit, t)
@@ -496,6 +505,8 @@ frame:SetScript("OnEvent", function(_, event, ...)
         db.version = VERSION
         db.maps = db.maps or {}
         db.chars = db.chars or {}
+        db.off = db.off or {}
+        db.minimap = db.minimap or { angle = MINIMAP_ANGLE }
     elseif event == "PLAYER_LOGIN" then
         Guard(handlers.Login)
     elseif ready and handlers[event] then
@@ -515,6 +526,7 @@ function handlers.Login()
     me.class = select(2, UnitClass("player"))
     me.faction = UnitFactionGroup("player")
     me.sex = UnitSex("player")
+    me.stats = me.stats:gsub("%d+,%d+,0,0,0,0;", "")    -- rows 1.0.0 saved while logging out
     ready = true
 
     local _, build, _, interface = GetBuildInfo()
@@ -566,6 +578,31 @@ end)
 On("SCREENSHOT_SUCCEEDED", function() Log("shot") end)
 On("CHAT_MSG_ADDON", OnMessage)
 
+-- For the settings page ---------------------------------------------------------------
+
+function ns.Settings()
+    return db.off
+end
+
+function ns.MinimapSettings()
+    return db.minimap
+end
+
+function ns.TestRunning()
+    return test ~= nil
+end
+
+ns.StartTest = StartTest
+
+function ns.Status()
+    if not me then return "Not ready yet." end
+    Pack()
+    local people = 0
+    for _ in pairs(me.people) do people = people + 1 end
+    return ("This character: %d events, %d party members tracked, %d errors this session."):format(
+        #me.events, people, errors)
+end
+
 -- Commands --------------------------------------------------------------------------
 
 SLASH_RTSCHRONICLE1 = "/chron"
@@ -586,6 +623,8 @@ SlashCmdList.RTSCHRONICLE = function(input)
         else
             StartTest(rest)
         end
+    elseif cmd == "options" then
+        ns.OpenSettings()
     elseif cmd == "export" then
         Pack()
         Print("The game writes saved data at logout or /reload. After that, send or drag in these two files from WTF\\Account\\<account>\\SavedVariables:")
@@ -596,6 +635,7 @@ SlashCmdList.RTSCHRONICLE = function(input)
         for _ in pairs(me.people) do people = people + 1 end
         Print(("%d events, %d party members tracked, %d KB of XP and gold, %d errors."):format(
             #me.events, people, math.floor(#me.stats / 1024), errors))
+        Print("/chron options - open the settings page")
         Print("/chron note <text> - pin a note here on the map")
         Print("/chron export - how to get your journey out of the game")
         Print("/chron synctest <name> - measure addon messages with another player")

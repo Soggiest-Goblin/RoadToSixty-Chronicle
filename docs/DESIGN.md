@@ -19,11 +19,27 @@ Chronicle adds these on top of what Road to Sixty records:
 - Player notes
 - A dump of the map hierarchy
 
-It has no settings screen yet. Players control it with `/chron`, `/chron note`, `/chron export` and `/chron synctest`.
+Players control it with its settings page and with `/chron`, `/chron options`, `/chron note`, `/chron export` and `/chron synctest`.
 
 ## Goal
 
 Friends sync journeys in game, and everything shows on Road to Sixty's map. The offline viewer stays as the detailed fallback.
+
+## Settings page
+
+Road to Sixty keeps its own page. Chronicle has a separate, larger one in `Settings.lua`, which contains:
+
+- Which of the account's characters the map draws
+- The sync test
+- A switch for each kind of Chronicle tracking, saved in `RoadToSixtyChronicleDB.off`
+- Every Road to Sixty setting
+
+The Road to Sixty settings aren't copied. Both pages read and write the same `RoadToSixtyDB` values, so they can't disagree. There are two costs while `ns` stays private:
+
+- `ROAD_TO_SIXTY` in `Settings.lua` repeats the option list from `Options.lua`, so a new Road to Sixty option has to be added by hand.
+- Chronicle can't call `ns.Map:ApplySettings` or `ns.Map:RefreshCharacters`, so changes show the next time the map opens. The minimap button is the exception, because Chronicle can use `/rts minimap`.
+
+Exposing the option list and those two calls publicly would remove both costs.
 
 ## Plan
 
@@ -56,13 +72,13 @@ Road to Sixty currently draws other characters' paths in full and without animat
 | Change | Where |
 |---|---|
 | Replay several characters at the same time | `Map.lua` |
-| All / Just Mine / specific friends toggles | `Panel.lua` |
+| All / Just Mine / specific friends toggles in the map's own list | `Panel.lua` |
 | Chronicle events on the map, such as notes and flights | `Map.lua` |
 
 ## Questions for Jordan
 
 1. **Would you rather merge these features into Road to Sixty, or keep Chronicle separate?** A small public hook on Road to Sixty's side would avoid the login and logout roster workaround.
-2. **Can Road to Sixty expose a stable API?** For example, `RoadToSixty.AddExternalCharacter(entry)`, `RemoveExternalCharacter(key)` and a way to add map events.
+2. **Can Road to Sixty expose a stable API?** For example, `RoadToSixty.AddExternalCharacter(entry)`, `RemoveExternalCharacter(key)`, a way to add map events, its option list, and calls to refresh an open map.
 3. **What's the best way to change `Map.lua` and `Panel.lua`?** Chronicle shouldn't carry a patched copy that has to be redone after every release.
 4. **Is the coastline data OK to reuse?** The viewer embeds run-length masks taken from `Gaps/land_*.tga`. This has to be settled before anything goes public.
 5. **Which license should this use, and how should it be credited?** Road to Sixty has no license file, so this repo includes none of its code.
@@ -74,6 +90,7 @@ Road to Sixty currently draws other characters' paths in full and without animat
 
 - `mock_client.lua` covers tracking, both talent API shapes, and secret values.
 - `two_clients.lua` covers a synctest between two Era clients with a modelled send limit, plus junk messages.
+- `settings.lua` covers the settings page against stand-in widgets, so it checks behaviour but not how the page looks.
 
 Earlier one-off checks of the viewer aren't in this repo. They used a 600,000-point file (95 ms to parse, 226 ms to build, 56 fps) and a hostile file to test escaping.
 
