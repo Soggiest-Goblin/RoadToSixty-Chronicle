@@ -1,0 +1,472 @@
+local _, ns = ...
+
+-- Records professions and recipes (issues #2 and #3) as journal events:
+--   prof  name, rank, maxRank, baseline   a profession learned, or a new tier
+--                                         of it (maxRank went up); baseline =
+--                                         true for ones already known when
+--                                         tracking began
+--   skill name, rank, from, late          a profession's skill went up, from
+--                                         from to rank (more than one point
+--                                         when raised while the addon was not
+--                                         running, or by a racial bonus);
+--                                         late = true when found before the
+--                                         check at login, so its time and
+--                                         place are the login's (#84)
+--   rec   name, spellID, profession, source   a recipe learned; spellID and
+--                                         profession when the client says;
+--                                         source "t" when a trainer was open
+--   craft link, count, quality, profession, spellID   something made, from
+--                                         "You create: ..." (#85); the same
+--                                         item again within CRAFT_BUNDLE
+--                                         seconds adds to the last one's
+--                                         count, so "Create All" is one
+--                                         event. spellID is the player's cast
+--                                         just before (the recipe, or a spell
+--                                         such as a mage's conjured food),
+--                                         profession when known; things made
+--                                         outside a profession have none
+--
+-- ns.char.skills is the last skill seen per profession: name -> { rank, max,
+-- icon }, icon a file ID when the client gives one.
+-- ns.char.recipes is the recipes known per profession: profession ->
+-- { [recipe name] = true }, filled whenever the profession window is open
+-- and when a recipe is learned. It is for counting and for finding a
+-- recipe's profession; window scans never log events.
+--
+-- Professions known when tracking began are logged once as baseline, so an
+-- old character does not show them as learned today.
+--
+-- Forever uses the modern APIs (GetProfessions, C_TradeSkillUI); the classic
+-- skill and trade skill functions do not exist there. Classic Era (#72)
+-- works only with the classic ones: the skill lines (GetSkillLineInfo), the trade skill
+-- window (GetTradeSkillLine, GetTradeSkillInfo) and, for Enchanting, the
+-- craft window (GetCraftDisplaySkillLine, GetCraftInfo). Each is used only
+-- when the modern one is missing.
+
+local Crafts = {}
+ns.Crafts = Crafts
+
+local Log = function(...) return ns.Journal:Log(...) end
+
+local trainerOpen = false
+local lastRecipe = { name = nil, t = 0, event = nil }   -- to log a recipe once when two sources report it
+local classicWindow             -- "trade" or "craft": the classic profession window open last
+
+-- The skill list's headers that professions sit under. The header names
+-- come from the game's data, so the client's own words for them are tried
+-- with the English ones.
+local function Words(...)
+    local set = {}
+    for i = 1, select("#", ...) do
+        local word = select(i, ...)
+        if type(word) == "string" then set[(word:gsub(":$", ""))] = true end
+    end
+    return set
+end
+local PROFESSION_HEADERS = Words(TRADE_SKILLS, SECONDARY_SKILLS, "Professions", "Secondary Skills")
+
+-- Classic skill lines: the professions under their headers (primary ones
+-- can be abandoned, so those count wherever they are). Riding sits under
+-- Secondary Skills too and is Mounts.lua's. A profession header that is
+-- collapsed hides its lines, and opening it from here would fire
+-- SKILL_LINES_CHANGED again, so nothing is read until it is open: a read
+-- missing a profession would log it as learned when it shows again.
+local function ReadSkillLines()
+    if not (GetNumSkillLines and GetSkillLineInfo) then return end
+    local skills, under = {}, false
+    for i = 1, GetNumSkillLines() do
+        local name, header, expanded, rank, _, _, max, abandonable = GetSkillLineInfo(i)
+        if header then
+            under = name and PROFESSION_HEADERS[name] or false
+            if under and not expanded then return end
+        elseif name and (under or abandonable) and max and max > 0
+            and not (ns.Mounts and ns.Mounts.IsRidingName(name)) then
+            skills[name] = { rank, max }
+        end
+    end
+    return skills
+end
+
+-- Professions now: name -> { rank, max, icon }, or nil without the API.
+-- Era has GetProfessions too, but it lists nothing there, so the skill
+-- lines go first wherever they exist (Forever has none).
+function Crafts:ReadSkills()
+    if GetNumSkillLines and GetSkillLineInfo then return ReadSkillLines() end
+    if not (GetProfessions and GetProfessionInfo) then return end
+    local skills = {}
+    for _, index in ipairs({ GetProfessions() }) do
+        local ok, name, icon, rank, max = pcall(GetProfessionInfo, index)
+        if ok and name then
+            skills[name] = { rank, max, icon }
+        end
+    end
+    return skills
+end
+
+-- Compares the professions with the last ones seen and logs what is new: a
+-- profession learned or a new tier as "prof", each rise in skill as "skill".
+-- atLogin: this is the check 5 seconds after login.
+function Crafts:CheckSkills(atLogin)
+    -- A seeded test journey has made-up professions; the real ones would not fit it.
+    if ns.char.seeded then return end
+    local skills = self:ReadSkills()
+    if not skills then return end
+    local known = ns.char.skills
+    local baseline = known == nil
+    -- An empty first read before the check 5 seconds after login may only be
+    -- professions not shown yet; taken as the baseline, each would then be
+    -- logged as learned today.
+    if baseline and next(skills) == nil and not self.settled then return end
+    known = known or {}
+    for name, s in pairs(skills) do
+        local old = known[name]
+        if not old then
+            Log("prof", name, s[1], s[2], baseline or nil)
+        else
+            if (s[2] or 0) > (old[2] or 0) then
+                Log("prof", name, s[1], s[2])
+            end
+            -- Nothing is raised in the seconds up to the check at login, so a
+            -- rise found by then happened while the addon was not running.
+            if (s[1] or 0) > (old[1] or 0) then
+                Log("skill", name, s[1], old[1] or 0, (atLogin or not self.settled) or nil)
+            end
+        end
+        -- This runs on every weapon and defence skill point too, so leave the
+        -- saved table alone when nothing about the profession changed.
+        if not (old and old[1] == s[1] and old[2] == s[2] and (old[3] or not s[3])) then
+            known[name] = { s[1], s[2], s[3] or (old and old[3]) }
+        end
+    end
+    ns.char.skills = known
+end
+
+-- True when the open profession window shows someone else's profession (a
+-- linked one) or a guild's, whose recipes are not this character's.
+local function ViewingOthers()
+    local ui = C_TradeSkillUI
+    return ui and ((ui.IsTradeSkillLinked and ui.IsTradeSkillLinked())
+        or (ui.IsTradeSkillGuild and ui.IsTradeSkillGuild())) or false
+end
+
+-- The profession the open profession window shows, if any.
+local function OpenProfession()
+    if not (C_TradeSkillUI and C_TradeSkillUI.GetBaseProfessionInfo) then
+        -- Classic: the trade skill window says "UNKNOWN" once closed; the
+        -- craft window, which also trains a hunter's pet, names only
+        -- Enchanting.
+        local ok, name
+        if classicWindow == "trade" and GetTradeSkillLine then
+            ok, name = pcall(GetTradeSkillLine)
+        elseif classicWindow == "craft" and GetCraftDisplaySkillLine then
+            ok, name = pcall(GetCraftDisplaySkillLine)
+        end
+        if ok and type(name) == "string" and name ~= "" and name ~= "UNKNOWN" then
+            return name
+        end
+        return
+    end
+    local ok, info = pcall(C_TradeSkillUI.GetBaseProfessionInfo)
+    if ok and info and info.professionName and info.professionName ~= "" then
+        return info.professionName
+    end
+end
+
+-- Classic: the recipes listed in the open window. Its list holds only
+-- learned recipes, between headers; collapsed headers hide theirs.
+local function ReadClassicRecipes()
+    local count, info
+    if classicWindow == "trade" then
+        count, info = GetNumTradeSkills, GetTradeSkillInfo
+    elseif classicWindow == "craft" then
+        count, info = GetNumCrafts, GetCraftInfo
+    end
+    if not (count and info) then return end
+    local names = {}
+    for i = 1, count() do
+        local name, kind
+        if classicWindow == "craft" then
+            name, _, kind = info(i)
+        else
+            name, kind = info(i)
+        end
+        if name and kind ~= "header" then names[name] = true end
+    end
+    return names
+end
+
+-- The profession a recipe belongs to, from its spell ID. At a trainer no
+-- profession window is open, so this is the only way to know.
+function Crafts:RecipeProfession(spellID)
+    local lookup = spellID and C_TradeSkillUI and C_TradeSkillUI.GetTradeSkillLineForRecipe
+    if not lookup then return end
+    local ok, _, name, _, parentName = pcall(lookup, spellID)
+    if ok then
+        return parentName or name
+    end
+end
+
+-- Names of the learned recipes in the open window that belong to profession.
+-- Switching windows, the recipe list can still be the last profession's for
+-- a moment, so each recipe's own profession is checked.
+function Crafts:ReadRecipes(profession)
+    local ui = C_TradeSkillUI
+    if not (ui and ui.GetAllRecipeIDs and ui.GetRecipeInfo) then return ReadClassicRecipes() end
+    local ok, ids = pcall(ui.GetAllRecipeIDs)
+    if not (ok and ids) then return end
+    local names = {}
+    for _, id in ipairs(ids) do
+        local info = ui.GetRecipeInfo(id)
+        local owner = self:RecipeProfession(id)
+        if info and info.learned and info.name and (not owner or owner == profession) then
+            names[info.name] = true
+        end
+    end
+    return names
+end
+
+-- Logs a recipe learned. The chat message and NEW_RECIPE_LEARNED both report
+-- it, chat usually first and without a spell ID, so a second report of the
+-- same recipe only fills in what the first one lacked.
+local function LogRecipe(name, spellID, profession)
+    if not name then return end
+    profession = profession or Crafts:RecipeProfession(spellID) or OpenProfession()
+    if profession then
+        local known = ns.char.recipes[profession]
+        if known then known[name] = true end
+    end
+    local now = GetTime()
+    local e = lastRecipe.event
+    if lastRecipe.name == name and now - lastRecipe.t < 5 and e then
+        ns.Journal:Amend(e, nil, spellID, profession)
+        return
+    end
+    lastRecipe.name, lastRecipe.t = name, now
+    lastRecipe.event = Log("rec", name, spellID, profession, trainerOpen and "t" or nil)
+end
+
+-- Adds the open profession window's recipes to the ones known. Only for
+-- counting and finding a recipe's profession: learning is logged from the
+-- chat message and NEW_RECIPE_LEARNED, which both work on Forever.
+function Crafts:CheckRecipes()
+    if ViewingOthers() then return end
+    local profession = OpenProfession()
+    local names = profession and self:ReadRecipes(profession)
+    if not (profession and names) then return end
+    local known = ns.char.recipes[profession] or {}
+    for name in pairs(names) do
+        known[name] = true
+    end
+    ns.char.recipes[profession] = known
+end
+
+-- Crafting ----------------------------------------------------------------------
+
+local CRAFT_BUNDLE = 10     -- seconds: the same item made again within this joins the last craft
+local CAST_SECONDS = 5      -- a cast this recent is the craft's recipe
+local lastCast              -- { spellID, at } the player's last cast
+local lastCraft             -- { key, event, at } the craft logged last
+
+-- The profession something was made with: the recipe's own on modern
+-- clients, else the classic profession window open, as classic crafting
+-- needs it. Modern clients' window state is not known, so they never guess.
+local function CraftProfession(spellID)
+    local profession = Crafts:RecipeProfession(spellID)
+    if profession then return profession end
+    if classicWindow and not (C_TradeSkillUI and C_TradeSkillUI.GetBaseProfessionInfo) then
+        return OpenProfession()
+    end
+end
+
+-- Logs count of the item in link made, or adds them to the last craft when
+-- it was the same item a moment ago.
+function Crafts:Crafted(link, count)
+    local now = GetTime()
+    count = tonumber(count) or 1
+    local key = ns.ItemString(link, true) or link
+    local last = lastCraft
+    if last and last.key == key and now - last.at <= CRAFT_BUNDLE then
+        last.event[7] = (last.event[7] or 1) + count
+        last.at = now
+        return last.event
+    end
+    local spellID = lastCast and now - lastCast.at <= CAST_SECONDS and lastCast.spellID or nil
+    local e = Log("craft", link, count, ns.Journal.ItemQuality and ns.Journal.ItemQuality(link) or nil,
+        CraftProfession(spellID), spellID)
+    lastCraft = { key = key, event = e, at = now }
+    return e
+end
+
+local function SpellName(spellID)
+    if C_Spell and C_Spell.GetSpellName then
+        return C_Spell.GetSpellName(spellID)
+    end
+    ---@diagnostic disable-next-line: deprecated
+    return GetSpellInfo and (GetSpellInfo(spellID))
+end
+
+-- Showing them ------------------------------------------------------------------
+
+Crafts.PROFESSION_ICON = "Interface\\Icons\\INV_Misc_Book_11"
+Crafts.RECIPE_ICON = "Interface\\Icons\\INV_Scroll_03"
+
+-- Classic tiers by their maximum skill.
+local TIERS = { [75] = "Apprentice", [150] = "Journeyman", [225] = "Expert", [300] = "Artisan" }
+
+-- A profession's icon: the one saved while it was known, else the one the
+-- client has for it now (for professions known before icons were saved,
+-- and seeded ones).
+local liveIcons
+function Crafts:Icon(profession)
+    if not profession then return self.PROFESSION_ICON end
+    local s = ns.view.skills and ns.view.skills[profession]
+    if s and s[3] then return s[3] end
+    if not liveIcons then
+        liveIcons = {}
+        for name, live in pairs(self:ReadSkills() or {}) do
+            liveIcons[name] = live[3]
+        end
+    end
+    local icon = liveIcons[profession]
+    if next(liveIcons) == nil then
+        liveIcons = nil     -- not loaded yet; ask again next time
+    end
+    return icon or self.PROFESSION_ICON
+end
+
+-- The profession whose recipe list (from its window) has this recipe.
+function Crafts:ProfessionOf(recipe)
+    for profession, names in pairs(ns.view.recipes) do
+        if names[recipe] then return profession end
+    end
+end
+
+-- Recipes learned (rec events) and recipes known now, over all professions.
+function Crafts:RecipeCounts()
+    local learned, known = 0, 0
+    for _, e in ipairs(ns.view.events) do
+        if e[2] == "rec" then learned = learned + 1 end
+    end
+    for _, names in pairs(ns.view.recipes) do
+        for _ in pairs(names) do known = known + 1 end
+    end
+    return learned, known
+end
+
+-- How to show a prof or rec event: title, detail (what kind of entry, to go
+-- before the place) and icon. Nil for professions known when tracking began,
+-- whose time is not when they were learned.
+function Crafts:Describe(e)
+    if e[2] == "prof" then
+        local name, rank, max = e[6], e[7] or 0, e[8] or 0
+        if e[9] then return end
+        if rank <= 1 then
+            return "Learned " .. name, TIERS[max] or "New profession", self:Icon(name)
+        end
+        local tier = TIERS[max]
+        return tier and ("%s: %s"):format(name, tier) or ("%s: up to %d"):format(name, max),
+            ("Skill %d of %d"):format(rank, max), self:Icon(name)
+    elseif e[2] == "rec" then
+        local name, spellID, source = e[6], e[7], e[9]
+        -- The first recipes were saved without one; the profession windows'
+        -- recipe lists can still tell.
+        local profession = e[8] or self:RecipeProfession(spellID) or self:ProfessionOf(name)
+        -- The recipe's own icon (what it makes); recipe spells themselves
+        -- only have the default spell icon.
+        local icon
+        if spellID and C_TradeSkillUI and C_TradeSkillUI.GetRecipeInfo then
+            local ok, info = pcall(C_TradeSkillUI.GetRecipeInfo, spellID)
+            icon = ok and info and info.icon or nil
+        end
+        local detail
+        if source == "t" then
+            detail = profession and (profession .. " trainer") or "Trainer"
+        else
+            detail = profession or "Recipe"
+        end
+        return name, detail, icon or (profession and self:Icon(profession)) or self.RECIPE_ICON
+    end
+end
+
+-- Listening ---------------------------------------------------------------------
+
+-- "You have learned how to create a new item: %s."
+local matchRecipe = ns.ChatMatcher(ERR_LEARN_RECIPE_S or "You have learned how to create a new item: %s.")
+-- "You create: %sx%d." before "You create: %s.", which would take the "x5" into the item.
+local craftMatchers = {
+    ns.ChatMatcher(LOOT_ITEM_CREATED_SELF_MULTIPLE or "You create: %sx%d."),
+    ns.ChatMatcher(LOOT_ITEM_CREATED_SELF or "You create: %s."),
+}
+
+-- Skill events before login are left to the check after it: a "prof"
+-- logged before Sync.lua brings in the sync folder would make this PC's
+-- older copy look like the one played last.
+local loggedIn = false
+
+ns.On("PLAYER_LOGIN", function()
+    loggedIn = true
+    -- Professions can be missing for a moment at login.
+    C_Timer.After(5, function()
+        Crafts.settled = true
+        ns.SafeCall(Crafts.CheckSkills, Crafts, true)
+    end)
+end)
+ns.On("SKILL_LINES_CHANGED", function() if loggedIn then Crafts:CheckSkills() end end)
+ns.On("CHAT_MSG_SKILL", function() if loggedIn then Crafts:CheckSkills() end end)
+
+ns.On("TRADE_SKILL_SHOW", function()
+    classicWindow = "trade"
+    Crafts:CheckRecipes()
+end)
+-- Classic Era's windows; the modern clients refuse these events.
+ns.On("TRADE_SKILL_CLOSE", function() if classicWindow == "trade" then classicWindow = nil end end)
+ns.On("CRAFT_SHOW", function()
+    classicWindow = "craft"
+    Crafts:CheckRecipes()
+end)
+ns.On("CRAFT_CLOSE", function() if classicWindow == "craft" then classicWindow = nil end end)
+
+-- The list updates on every craft and filter change, and each check reads
+-- every recipe, so a burst of updates is read once after it settles.
+local recipeCheckPending = false
+local function RecipesChanged()
+    if recipeCheckPending then return end
+    recipeCheckPending = true
+    C_Timer.After(0.5, function()
+        recipeCheckPending = false
+        ns.SafeCall(Crafts.CheckRecipes, Crafts)
+    end)
+end
+ns.On("TRADE_SKILL_LIST_UPDATE", RecipesChanged)
+ns.On("TRADE_SKILL_UPDATE", RecipesChanged)
+ns.On("CRAFT_UPDATE", RecipesChanged)
+
+ns.On("TRAINER_SHOW", function() trainerOpen = true end)
+ns.On("TRAINER_CLOSED", function() trainerOpen = false end)
+
+ns.On("NEW_RECIPE_LEARNED", function(spellID)
+    LogRecipe(SpellName(spellID), spellID)
+end)
+
+ns.On("CHAT_MSG_SYSTEM", function(msg)
+    local name = matchRecipe(msg)
+    if name then
+        LogRecipe(name)
+    end
+end)
+
+ns.On("UNIT_SPELLCAST_SUCCEEDED", function(unit, _, spellID)
+    if unit ~= "player" or (issecretvalue and issecretvalue(spellID)) then return end
+    lastCast = { spellID = spellID, at = GetTime() }
+end)
+
+ns.On("CHAT_MSG_LOOT", function(msg)
+    for _, match in ipairs(craftMatchers) do
+        local link, count = match(msg)
+        if link then
+            Crafts:Crafted(link, count)
+            return
+        end
+    end
+end)
+

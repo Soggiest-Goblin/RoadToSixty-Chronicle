@@ -1,0 +1,756 @@
+local addonName, ns = ...
+
+-- Records what happened along the path, plus a stats snapshot at each level
+-- (ns.char.levels[level], including the equipped gear: slot -> item ID, and
+-- from 1.10.3 links: slot -> item string, see Items.lua; gearLater =
+-- true when it was taken at a later login, not at the level up; shot =
+-- true when a screenshot of the level up was saved, see LevelShot.lua).
+--
+-- Each event is an array: { time, kind, continentID, x, y, ... } with the
+-- kind's own fields from index 6 on (so e[6] is the first one below). The
+-- position is in world yards; when none is known it is -1, 0, 0. Kinds and
+-- extra fields:
+--   on   level, money              session start; money the gold held (copper),
+--                                  from #86: nil in older journeys, and filled
+--                                  in a moment later when the client said 0 at
+--                                  login (its money can come late)
+--   off  money                     session end, with the gold held (from #86)
+--   lvl  level                     level reached
+--   die  killer, kind, spell       death; who killed the player, filled in
+--                                  a moment later when known, see Deaths.lua
+--   qa   questID                   quest accepted
+--   qd   questID, xp, money, title quest turned in; title from 1.1 on, when
+--                                  the client knows it
+--   zone uiMapID                   entered a new zone
+--   in   instanceID, name, type    entered a dungeon, raid or battleground
+--   out  instanceID, summary       left it; summary of the run, see EndRun
+--   loot itemLink, quality, instanceID   looted an item of green quality or
+--                                  better; instanceID if inside one
+--   eq   slot, itemID, item, late, source   equipment changed; itemID 0
+--                                  when emptied; item is the item string
+--                                  (ns.ItemString), from 1.10.3, nil when
+--                                  emptied; late = true when found at login
+--                                  (changed while the addon was not
+--                                  running), so its time and place are the
+--                                  login's; source is where and how the item
+--                                  was got, when known (Sources.lua)
+--   prof, rec, skill, craft        professions, recipes, skill points and things
+--                                  made, see Crafts.lua
+--   gj, gl, gr                     guild joined, left, rank changed, see Guilds.lua
+--   rep                            reputation standing changed, see Reputation.lua
+--   ride, mount                    riding learned, new mount, see Mounts.lua
+--   rare                           first kill of a rare mob, see Rares.lua
+--   grp, grpa, grpx                group joined, member joined, group ended, see Groups.lua
+--   ench                           an enchant put on gear, see Enchants.lua
+--   gath                           mining, herb or fishing gather, see Gathering.lua
+-- Events inside instances use the last outdoor position.
+
+local Journal = {}
+ns.Journal = Journal
+
+local pendingPlayedLevel
+
+function Journal:Log(kind, ...)
+    local c, x, y = ns.Recorder:Position()
+    local e = { ns.Now(), kind, c or -1, x or 0, y or 0, ... }
+    table.insert(ns.char.events, e)
+    return e
+end
+
+-- Fills in a logged event's own fields (from index 6, in Log's order) that
+-- it was logged without; fields it already has are kept.
+function Journal:Amend(e, ...)
+    for i = 1, select("#", ...) do
+        if e[5 + i] == nil then
+            e[5 + i] = (select(i, ...))
+        end
+    end
+end
+
+-- Equipment slots, in character sheet order, by the names the client uses.
+ns.GEAR_SLOTS = {
+    "HeadSlot", "NeckSlot", "ShoulderSlot", "BackSlot", "ChestSlot", "ShirtSlot", "TabardSlot",
+    "WristSlot", "HandsSlot", "WaistSlot", "LegsSlot", "FeetSlot", "Finger0Slot", "Finger1Slot",
+    "Trinket0Slot", "Trinket1Slot", "MainHandSlot", "SecondaryHandSlot", "RangedSlot",
+}
+
+-- What the player is wearing: inventory slot ID -> item ID, and slot ID ->
+-- item string. Slots this client does not have are skipped.
+function ns.CaptureGear()
+    local gear, links = {}, {}
+    for _, name in ipairs(ns.GEAR_SLOTS) do
+        local ok, slot = pcall(GetInventorySlotInfo, name)
+        local itemID = ok and slot and GetInventoryItemID("player", slot)
+        if itemID then
+            gear[slot] = itemID
+            links[slot] = ns.ItemString(GetInventoryItemLink("player", slot))
+        end
+    end
+    return gear, links
+end
+
+-- Item strings worn now, without enchants: slot -> string. Not saved; a
+-- suffix changing while the item ID stays (one "of the Bear" for one "of
+-- the Eagle") is a real change, which item IDs alone would miss.
+local worn = {}
+
+local function Unenchanted(links)
+    local out = {}
+    for slot, item in pairs(links) do out[slot] = ns.ItemString(item, true) end
+    return out
+end
+
+-- Equipped items are not readable yet at PLAYER_LOGIN on Forever: the gear
+-- read there comes back empty (issue #63). So the login gear is read again
+-- every GEAR_RETRY seconds until items show, then fills in the snapshot
+-- taken at login and ns.char.gear. A character that really wears nothing
+-- stays empty once GEAR_TRIES reads have found nothing.
+--
+-- Gear that differs from the gear last seen was changed while the addon was
+-- not running (turned off, or played on a PC without it), and is logged as
+-- a late "eq". Only slots the last seen gear has an item in are compared:
+-- before 1.10.3 it was often empty or partial (issue #63), and a missing
+-- slot is unknown, not empty. So a slot filled while away from an empty one
+-- is missed. A read that finds nothing is not compared either, as it may
+-- not have worked, and a slot the read finds empty is never logged as taken
+-- off: gear can load a few items at a time, so it may only be late. So an
+-- item taken off while away is missed until that slot changes again.
+local GEAR_RETRY, GEAR_TRIES = 1, 30
+local waitingGear = false
+
+-- level: the level whose snapshot waits for the login gear, or nil.
+-- Items may come in a few at a time. A read with every slot the gear last
+-- seen had counts at once; one missing some may be part loaded, and would
+-- log each slot still loading as emptied, so it counts only once the next
+-- read, GEAR_RETRY later, finds as many. lastCount is the read before's.
+local function ReadLoginGear(level, tries, lastCount)
+    local gear, links = ns.CaptureGear()
+    local count = 0
+    for _ in pairs(gear) do count = count + 1 end
+    local complete = count > 0
+    for slot in pairs(type(ns.char.gear) == "table" and ns.char.gear or {}) do
+        if not gear[slot] then complete = false end
+    end
+    if tries > 1 and not complete and (count == 0 or count ~= lastCount) then
+        waitingGear = true
+        C_Timer.After(GEAR_RETRY, function() ns.SafeCall(ReadLoginGear, level, tries - 1, count) end)
+        return
+    end
+    waitingGear = false
+    -- Gear worn all along is no new arrival for Sources.lua either.
+    if ns.Sources then ns.Sources:Rebase() end
+    local before = ns.char.gear
+    if type(before) == "table" and next(gear) then
+        for slot = 1, 19 do
+            local was = before[slot]
+            if was and gear[slot] and was ~= gear[slot] then
+                Journal:Log("eq", slot, gear[slot], links[slot], true)
+            elseif was and not gear[slot] then
+                -- Empty in the read: maybe still loading, so unknown, not
+                -- taken off. Kept as it was, so its item turning up later
+                -- is no change either.
+                gear[slot] = was
+            end
+        end
+    end
+    ns.char.gear, worn = gear, Unenchanted(links)
+    local snapshot = level and ns.char.levels[level]
+    if snapshot and (not snapshot.gear or next(snapshot.gear) == nil) then
+        snapshot.gear, snapshot.links = CopyTable(gear), CopyTable(links)
+    end
+end
+
+-- Whether the gear worn at login is still loading (see ReadLoginGear).
+function Journal:WaitingGear()
+    return waitingGear
+end
+
+-- Logs real equipment changes, so a replay can show gear changing between
+-- level ups. ns.char.gear is the gear last seen (set at login), so swapping
+-- an item for the same one logs nothing. Before login it is still the saved
+-- gear, which the sync folder may be about to replace (Sync.lua), and an
+-- "eq" logged then would make this PC's older copy look played last. While
+-- the login gear is not readable yet nothing is logged either: items
+-- turning up then are the gear worn all along, not changes.
+local loggedIn = false
+ns.On("PLAYER_EQUIPMENT_CHANGED", function(slot)
+    local gear = ns.char.gear
+    if not loggedIn or waitingGear or not gear or type(slot) ~= "number" or slot < 1 or slot > 19 then return end
+    local itemID = GetInventoryItemID("player", slot) or 0
+    local item = itemID ~= 0 and ns.ItemString(GetInventoryItemLink("player", slot)) or nil
+    local plain = ns.ItemString(item, true)
+    if (gear[slot] or 0) ~= itemID or (plain and worn[slot] and plain ~= worn[slot]) then
+        gear[slot] = itemID ~= 0 and itemID or nil
+        local source = plain and ns.Sources and ns.Sources:Take(plain)
+        Journal:Log("eq", slot, itemID, item, nil, source)
+    end
+    worn[slot] = plain
+end)
+
+local function Snapshot(level, partial)
+    local totals = ns.char.totals
+    local gear, links = ns.CaptureGear()
+    ns.char.levels[level] = {
+        gear = gear,
+        links = links,
+        t = ns.Now(),
+        money = GetMoney(),
+        kills = totals.kills,
+        killXP = totals.killXP,
+        questXP = totals.questXP,
+        deaths = totals.deaths,
+        quests = totals.quests,
+        instances = totals.instances,
+        distance = math.floor(totals.distance),
+        flown = math.floor(totals.flown),
+        skills = ns.char.skills and CopyTable(ns.char.skills),   -- profession -> { rank, max }
+        partial = partial or nil,
+    }
+end
+
+local function CheckZone()
+    if IsInInstance() then return end
+    local mapID = C_Map.GetBestMapForUnit("player")
+    if mapID and mapID ~= ns.char.lastZone and ns.IsPlaceMap(mapID) then
+        ns.char.lastZone = mapID
+        Journal:Log("zone", mapID)
+    end
+end
+
+-- A run is one visit to an instance. ns.char.run holds the totals at entry,
+-- so leaving can log what happened inside. It is saved, so a run survives a
+-- logout inside the instance; run.pc is the PC that started it, and the run
+-- counts under it so two PCs finishing it count it once.
+--
+-- Dungeons have no run ID, only the instance's map ID, and dying means
+-- coming back to life at a graveyard outside. So leaving does not end a
+-- run at once: run.left keeps when and where it was left and the summary
+-- then. Back into the same instance within RUN_GAP and with the same group
+-- (or still without one), the run carries on; otherwise it ends as it was
+-- when left, so what happens outside does not count towards it. A new
+-- group going back in is a new run, even minutes later.
+local RUN_GAP = ns.Tidy.RUN_GAP
+
+-- Puts event e into the journal in time order (it can be from the past).
+local function Insert(e)
+    local events = ns.char.events
+    local at = #events + 1
+    while at > 1 and events[at - 1][1] > e[1] do
+        at = at - 1
+    end
+    table.insert(events, at, e)
+end
+
+local function StartRun(name, instanceType)
+    local t = ns.char.totals
+    ns.char.run = {
+        t = ns.Now(), name = name, type = instanceType, level = UnitLevel("player"),
+        kills = t.kills, xp = t.killXP + t.questXP, deaths = t.deaths, money = GetMoney(),
+        items = {}, party = {}, pc = ns.pc,
+    }
+    for _, guid in ipairs(ns.Groups:Current() or {}) do
+        ns.char.run.party[guid] = true
+    end
+end
+
+-- Notes that the player with guid was in the group during the run, so the
+-- run lists everyone who was there at any point, not only those left at
+-- the end (Groups.lua calls this on every roster update).
+function Journal:JoinRun(guid)
+    local run = ns.char.run
+    if run and not run.left then
+        run.party = run.party or {}
+        run.party[guid] = true
+    end
+end
+
+-- The run so far: { name, duration (seconds), kills, xp, deaths, money
+-- (copper), levels, items = { itemLink, ... }, party = guids of everyone
+-- else who was in the group at any point during the run, if any (see
+-- Groups.lua), type = the instance type, "party", "raid", "pvp" or "arena",
+-- pvp = a battleground's result and score (Battlegrounds.lua) }. This is
+-- the summary its "out" event gets.
+local function RunSummary(run, endT)
+    local t = ns.char.totals
+    local seen, party = {}, {}
+    for guid in pairs(run.party or {}) do
+        seen[guid] = true
+        party[#party + 1] = guid
+    end
+    for _, guid in ipairs(ns.Groups:Current() or {}) do
+        if not seen[guid] then party[#party + 1] = guid end
+    end
+    return {
+        name = run.name,
+        duration = (endT or ns.Now()) - run.t,
+        kills = t.kills - run.kills,
+        xp = t.killXP + t.questXP - run.xp,
+        deaths = t.deaths - run.deaths,
+        money = GetMoney() - run.money,
+        levels = UnitLevel("player") - run.level,
+        items = { unpack(run.items) },
+        party = #party > 0 and party or nil,
+        type = run.type,
+        pvp = run.pvp,      -- a battleground's result and score (Battlegrounds.lua)
+    }
+end
+
+-- Ends the run that was left, logging "out" when and where it was left.
+local function FinishRun()
+    local run = ns.char.run
+    ns.char.run = nil
+    local left = run and run.left
+    if not left then return end
+    -- A battleground is no dungeon run with the group.
+    if run.type ~= "pvp" and run.type ~= "arena" then
+        ns.Groups:CountRun(left.summary.party, run.type == "raid", run.pc)
+    end
+    Insert({ left.t, "out", left.c, left.x, left.y, left.id, left.summary })
+end
+
+-- Notes leaving instanceID; the run ends later unless it is entered again.
+-- at, when given, is when and where it was left: { t, c, x, y }, for an
+-- instance logged out in and found left at the next login.
+local function LeaveRun(instanceID, at)
+    local run = ns.char.run
+    if not run then
+        if at then
+            Insert({ at.t, "out", at.c, at.x, at.y, instanceID })
+        else
+            Journal:Log("out", instanceID)
+        end
+        return
+    end
+    local c, x, y = ns.Recorder:Position()
+    if at then c, x, y = at.c, at.x, at.y end
+    local t = at and at.t or ns.Now()
+    run.left = {
+        t = t, c = c or -1, x = x or 0, y = y or 0, id = instanceID, summary = RunSummary(run, t),
+        group = ns.char.group and ns.char.group.t or false,
+    }
+    -- A battleground left is over: the next one, even of the same map, is a match of its own.
+    if ns.Now() - t >= RUN_GAP or run.type == "pvp" or run.type == "arena" then
+        FinishRun()
+        return
+    end
+    local left = run.left
+    C_Timer.After(RUN_GAP + 1, function()
+        ns.SafeCall(function()
+            if ns.char.run and ns.char.run.left == left then FinishRun() end
+        end)
+    end)
+end
+
+-- When and where the last session ended, { t, c, x, y } from its last
+-- event, until the first instance check after login: an instance logged
+-- out in and not logged back into was left then, not at this login.
+local lastSession
+
+local function CheckInstance()
+    local char = ns.char
+    local offline = lastSession
+    lastSession = nil
+    local run = char.run
+    -- A run left too long ago, or left before a logout, has ended.
+    if run and run.left and ns.Now() - run.left.t >= RUN_GAP then
+        FinishRun()
+        run = nil
+    end
+    local inInstance, instanceType = IsInInstance()
+    if inInstance then
+        local name, _, _, _, _, _, _, instanceID = GetInstanceInfo()
+        if run and run.left then
+            local group = ns.char.group and ns.char.group.t or false
+            if run.left.id == instanceID and (run.left.group == nil or run.left.group == group) then
+                -- Back in, after a death or a trip out: the same run.
+                run.left = nil
+                char.instance = instanceID
+                return
+            end
+            FinishRun()
+        end
+        if char.instance ~= instanceID then
+            if char.instance then
+                LeaveRun(char.instance)
+                FinishRun()
+            end
+            char.instance = instanceID
+            char.totals.instances = char.totals.instances + 1
+            Journal:Log("in", instanceID, name, instanceType)
+            StartRun(name, instanceType)
+        end
+    elseif char.instance then
+        LeaveRun(char.instance, offline)
+        char.instance = nil
+    end
+end
+
+ns.On("PLAYER_LOGIN", function()
+    loggedIn = true
+    if not ns.char.seeded then ns.SafeCall(ns.Tidy.Runs, ns.char) end
+    ns.SafeCall(ns.Tidy.Events, ns.char, ns.IsPlaceMap)
+    for _, e in pairs(ns.db.roster or {}) do
+        if e.journey and e.journey.events ~= ns.char.events then
+            ns.SafeCall(ns.Tidy.Events, e.journey, ns.IsPlaceMap)
+        end
+    end
+    local level = UnitLevel("player")
+    local snapshot = ns.char.levels[level]
+    local fillLevel
+    if not snapshot then
+        -- Level 1 is a clean start; anything else means tracking began mid-level.
+        Snapshot(level, level > 1)
+        fillLevel = level
+    elseif not snapshot.gear then
+        -- Reached before gear was recorded: today's gear is the best guess.
+        snapshot.gearLater = true
+        fillLevel = level
+    end
+    local last = ns.char.events[#ns.char.events]
+    lastSession = last and { t = last[1], c = last[3], x = last[4], y = last[5] } or nil
+    -- After the session start, so gear changed while away is logged in it.
+    -- The gold held marks gold over time at the cap too, where no level ups
+    -- come to snapshot it (#86); a 0 may only be the client not knowing yet.
+    local money = GetMoney()
+    local on = Journal:Log("on", level, money > 0 and money or nil)
+    if money <= 0 then
+        C_Timer.After(5, function() ns.SafeCall(Journal.Amend, Journal, on, nil, GetMoney()) end)
+    end
+    ReadLoginGear(fillLevel, GEAR_TRIES)
+end)
+
+ns.On("PLAYER_LOGOUT", function()
+    Journal:Log("off", GetMoney())
+end)
+
+ns.On("PLAYER_ENTERING_WORLD", function()
+    CheckInstance()
+    CheckZone()
+end)
+
+ns.On("ZONE_CHANGED_NEW_AREA", CheckZone)
+
+-- Asking for the time played makes the game print its /played lines in
+-- chat; LevelChat.lua's summary says it instead. So the chat windows stop
+-- listening for the answer to this one request and listen again just after
+-- it, or after PLAYED_TIMEOUT seconds if it never comes. A /played typed by
+-- the player still shows.
+local PLAYED_TIMEOUT = 10
+local mutedChats
+
+local function UnmuteChats()
+    for _, chat in ipairs(mutedChats or {}) do
+        chat:RegisterEvent("TIME_PLAYED_MSG")
+    end
+    mutedChats = nil
+end
+
+local function MuteChats()
+    if mutedChats then return end
+    mutedChats = {}
+    for i = 1, NUM_CHAT_WINDOWS or 10 do
+        local chat = _G["ChatFrame" .. i]
+        if chat and chat:IsEventRegistered("TIME_PLAYED_MSG") then
+            chat:UnregisterEvent("TIME_PLAYED_MSG")
+            mutedChats[#mutedChats + 1] = chat
+        end
+    end
+    C_Timer.After(PLAYED_TIMEOUT, function() ns.SafeCall(UnmuteChats) end)
+end
+
+
+ns.On("PLAYER_LEVEL_UP", function(level)
+    Snapshot(level)
+    Journal:Log("lvl", level)
+    pendingPlayedLevel = level
+    MuteChats()
+    RequestTimePlayed()
+end)
+
+ns.On("TIME_PLAYED_MSG", function(total)
+    ns.char.played = total
+    local snapshot = pendingPlayedLevel and ns.char.levels[pendingPlayedLevel]
+    if snapshot then
+        snapshot.played = total
+    end
+    pendingPlayedLevel = nil
+    -- A moment later, so the chat windows do not still get this answer.
+    if mutedChats then
+        C_Timer.After(0.5, function() ns.SafeCall(UnmuteChats) end)
+    end
+end)
+
+-- Time played ----------------------------------------------------------------------
+
+-- The play sessions of the journey shown, from its "on" and "off" events:
+-- { from, to } in time order. A session with no "off" (the game crashed)
+-- ends at its last event; this character's current one runs to now.
+local sessionCache = { view = nil, count = -1, list = nil }
+
+local function Sessions()
+    local events = ns.view.events
+    if sessionCache.view == ns.view and sessionCache.count == #events then
+        return sessionCache.list or {}
+    end
+    local list, open, last = {}, nil, nil
+    for _, e in ipairs(events) do
+        if e[2] == "on" then
+            if open then list[#list + 1] = { open, last } end
+            open = e[1]
+        elseif e[2] == "off" and open then
+            list[#list + 1] = { open, e[1] }
+            open = nil
+        end
+        last = e[1]
+    end
+    if open then
+        list[#list + 1] = { open, ns.view == ns.char and math.huge or last }
+    end
+    sessionCache.view, sessionCache.count, sessionCache.list = ns.view, #events, list
+    return list
+end
+
+-- Seconds online between times a and b.
+local function OnlineBetween(a, b)
+    local seconds = 0
+    for _, s in ipairs(Sessions()) do
+        local from, to = math.max(s[1], a), math.min(s[2], b, ns.Now())
+        if to > from then seconds = seconds + to - from end
+    end
+    return seconds
+end
+
+-- Time played at time t in the journey shown: the total, and in the level
+-- the character was at then. Each is from the last level up with a saved
+-- time played, plus the time online since. The level's is nil when its
+-- start has no saved time (tracking began partway through it); both are
+-- nil before the first.
+function Journal:PlayedAt(t)
+    local current, known
+    for _, s in pairs(ns.view.levels) do
+        if s.t and s.t <= t then
+            if not current or s.t > current.t then current = s end
+            if s.played and (not known or s.t > known.t) then known = s end
+        end
+    end
+    if not known then return end
+    local total = known.played + OnlineBetween(known.t, t)
+    local level = current.played and not current.partial and OnlineBetween(current.t, t) or nil
+    return total, level
+end
+
+-- The client can fire PLAYER_DEAD twice for one death (seen once, both in
+-- the same second). Only the same second counts as one death: a shaman's
+-- Reincarnation can be followed by a real second death within moments.
+local lastDeath
+
+ns.On("PLAYER_DEAD", function()
+    if ns.Now() == lastDeath then return end
+    lastDeath = ns.Now()
+    ns.char.totals.deaths = ns.char.totals.deaths + 1
+    Journal:Log("die")
+end)
+
+-- Quest names seen this session, in case the client has forgotten one by
+-- the time it is turned in.
+local questTitles = {}
+
+-- Forever has C_QuestLog.GetTitleForQuestID; Era and Anniversary have only
+-- C_QuestLog.GetQuestInfo (#72: their turn-ins showed as "Quest 9921").
+local function QuestTitle(questID)
+    for _, name in ipairs({ "GetTitleForQuestID", "GetQuestInfo" }) do
+        local lookup = C_QuestLog and C_QuestLog[name]
+        local ok, title = false, nil
+        if lookup and questID then ok, title = pcall(lookup, questID) end
+        if ok and type(title) == "string" and title ~= "" then
+            questTitles[questID] = title
+            break
+        end
+    end
+    return questTitles[questID]
+end
+
+-- The quest window names the quest it shows, which is the surest source on
+-- the classic clients, where a quest's title may not be cached.
+local function NoteQuestWindow()
+    local id = GetQuestID and GetQuestID()
+    local title = GetTitleText and GetTitleText()
+    if id and id > 0 and type(title) == "string" and title ~= "" then
+        questTitles[id] = title
+    end
+end
+ns.On("QUEST_DETAIL", NoteQuestWindow)
+ns.On("QUEST_PROGRESS", NoteQuestWindow)
+ns.On("QUEST_COMPLETE", NoteQuestWindow)
+
+-- A turn-in's quest name: the one saved with it (from 1.1 on), else what
+-- the client knows now; nil if neither.
+function Journal:QuestName(e)
+    return e[9] or QuestTitle(e[6])
+end
+
+ns.On("QUEST_ACCEPTED", function(...)
+    -- Classic passes (questLogIndex, questID); modern clients pass (questID).
+    local questID = select(select("#", ...), ...)
+    QuestTitle(questID)
+    Journal:Log("qa", questID)
+end)
+
+ns.On("QUEST_TURNED_IN", function(questID, xp, money)
+    local totals = ns.char.totals
+    totals.quests = totals.quests + 1
+    totals.questXP = totals.questXP + (xp or 0)
+    Journal:Log("qd", questID, xp, money, QuestTitle(questID))
+end)
+
+-- The combat log is blocked for addons on Forever, so kills are counted from
+-- "X dies, you gain N experience." Kills that give no XP (gray mobs) are missed.
+local matchKill = ns.ChatMatcher(COMBATLOG_XPGAIN_FIRSTPERSON or "%s dies, you gain %d experience.")
+
+-- Loot: "You receive loot: [item]." (and "...x3." for stacks). Quest rewards
+-- come as "You receive item:" and are left out, as they are not drops.
+local lootMatchers = {
+    ns.ChatMatcher(LOOT_ITEM_SELF_MULTIPLE or "You receive loot: %sx%d."),
+    ns.ChatMatcher(LOOT_ITEM_SELF or "You receive loot: %s."),
+}
+local MIN_LOOT_QUALITY = 2      -- uncommon (green)
+local LINK_QUALITY = { ["1eff00"] = 2, ["0070dd"] = 3, ["a335ee"] = 4, ["ff8000"] = 5 }
+
+-- Item quality from the client, or from the link if the item is not cached
+-- yet: newer clients write it in the link ("|cnIQ2:"), older ones colour it.
+local function ItemQuality(link)
+    ---@diagnostic disable-next-line: deprecated
+    local getInfo = C_Item and C_Item.GetItemInfo or GetItemInfo
+    local quality = getInfo and select(3, getInfo(link))
+    if quality then return quality end
+    local tagged = link:match("|cnIQ(%d+):")
+    if tagged then return tonumber(tagged) end
+    local color = link:match("|c%x%x(%x%x%x%x%x%x)")
+    return color and LINK_QUALITY[color:lower()]
+end
+Journal.ItemQuality = ItemQuality
+
+ns.On("CHAT_MSG_LOOT", function(msg)
+    local link
+    for _, match in ipairs(lootMatchers) do
+        link = match(msg)
+        if link then break end
+    end
+    if not link then return end
+    local quality = ItemQuality(link)
+    if not quality or quality < MIN_LOOT_QUALITY then return end
+    Journal:Log("loot", link, quality, ns.char.instance)
+    -- Not once the run has been left: loot outside is not the run's.
+    if ns.char.run and not ns.char.run.left then
+        table.insert(ns.char.run.items, link)
+    end
+end)
+
+-- Kills one by one, packed like the path to keep the file small:
+-- ns.char.kills = { d = "dt,xp,n;...", last = time of the last kill,
+-- names = { mob name, ... } }, where dt is seconds since the previous kill
+-- and n indexes names. About 8 bytes a kill. No position: the replay puts a
+-- kill where the path was at that time. The first kill's dt is its full
+-- timestamp, as last starts at 0. This session's kills wait in killBuffer
+-- and are packed in every minute and at logout (and /reload).
+local killBuffer, nameIndex = {}, nil
+local PACK_INTERVAL = 60
+
+local function AddKill(name, xp)
+    local kills = ns.char.kills
+    if not nameIndex then
+        nameIndex = {}
+        for i, n in ipairs(kills.names) do
+            nameIndex[n] = i
+        end
+    end
+    local n = nameIndex[name]
+    if not n then
+        n = #kills.names + 1
+        kills.names[n] = name
+        nameIndex[name] = n
+    end
+    local t = ns.Now()
+    killBuffer[#killBuffer + 1] = ("%d,%d,%d;"):format(t - kills.last, xp, n)
+    kills.last = t
+end
+
+local function PackKills()
+    if #killBuffer == 0 then return end
+    local kills = ns.char.kills
+    kills.d = kills.d .. table.concat(killBuffer)
+    wipe(killBuffer)
+end
+
+ns.On("PLAYER_LOGOUT", PackKills)
+ns.On("PLAYER_LOGIN", function()
+    C_Timer.NewTicker(PACK_INTERVAL, function() ns.SafeCall(PackKills) end)
+end)
+
+-- Every recorded kill of the journey shown (ns.view), oldest first:
+-- { t, xp, name }. This session's are still buffered for this character.
+-- The list is shared by every caller and must not be changed. The packed
+-- string only grows, so a list made from it is extended, not made again;
+-- the buffered kills are added on top each call. tail is the end of the
+-- string as last read, to notice it was replaced (/rts reset, /rts seed).
+local decodedKills = { kills = nil, length = 0, tail = "", list = {}, t = 0 }
+
+function Journal:Kills()
+    local kills, cache = ns.view.kills, decodedKills
+    if cache.kills ~= kills or #kills.d < cache.length
+        or kills.d:sub(math.max(1, cache.length - 15), cache.length) ~= cache.tail then
+        cache.kills, cache.length, cache.tail, cache.list, cache.t = kills, 0, "", {}, 0
+    end
+    local saved, t = cache.list, cache.t
+    if #kills.d > cache.length then
+        t = ns.Packed.DecodeKills(kills.d:sub(cache.length + 1), kills.names, t, saved)
+        cache.length, cache.t = #kills.d, t
+        cache.tail = kills.d:sub(-16)
+    end
+    if ns.view ~= ns.char or #killBuffer == 0 then
+        return saved
+    end
+    local list = {}
+    for i = 1, #saved do
+        list[i] = saved[i]
+    end
+    ns.Packed.DecodeKills(table.concat(killBuffer), kills.names, t, list)
+    return list
+end
+
+-- Forgets this session's kills, after the character's data was erased.
+function Journal:Reset()
+    wipe(killBuffer)
+    nameIndex = nil
+end
+
+ns.killsTracked = ns.On("CHAT_MSG_COMBAT_XP_GAIN", function(msg)
+    local name, xp = matchKill(msg)
+    if xp then
+        local totals = ns.char.totals
+        totals.kills = totals.kills + 1
+        totals.killXP = totals.killXP + tonumber(xp)
+        AddKill(name, tonumber(xp))
+        if ns.Rares then ns.Rares:Killed(name) end
+    end
+end)
+
+ns.Command("stats", "show journey totals and recording size", function()
+    local t = ns.char.totals
+    local segments, points, bytes = ns.Recorder:Stats()
+    ns.Print(("Distance %d yd walked, %d yd flown."):format(math.floor(t.distance), math.floor(t.flown)))
+    ns.Print(("Kills %s, deaths %d, quests %d, instances %d."):format(
+        ns.killsTracked and t.kills or "n/a", t.deaths, t.quests, t.instances))
+    ns.Print(("XP from kills %d, from quests %d."):format(t.killXP, t.questXP))
+    ns.Print(("Path: %d segments, %d points, %.1f KB. Events: %d."):format(
+        segments, points, bytes / 1024, #ns.char.events))
+
+    local getMemory = GetAddOnMemoryUsage or (C_AddOns and C_AddOns.GetAddOnMemoryUsage)
+    if UpdateAddOnMemoryUsage and getMemory then
+        UpdateAddOnMemoryUsage()
+        ns.Print(("Addon memory: %.1f MB."):format(getMemory(addonName) / 1024))
+    end
+    if ns.char.seeded then
+        ns.Print("|cffff8040This character has fake seeded data. /rts reset confirm clears it.|r")
+    end
+end)

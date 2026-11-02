@@ -55,6 +55,7 @@ local function Client(name, other, guid)
   env.UnitClass = function() return "Paladin", "PALADIN" end
   env.UnitLevel = function() return 12 end
   env.GetRealmName = function() return "Era" end
+  env.BNGetInfo = function() return 1, name .. "#1234" end
   env.Ambiguate = function(n) return (n:gsub("%-.*", "")) end
   env.CreateFrame = function(kind, _, parent)
     local w = Widget(kind, parent, c)
@@ -143,6 +144,7 @@ assert(#got.events == 300 and got.events[300][6] == sent.events[300][6] and got.
   "events differ")
 assert(got.levels[2].gear[3] == 3 and got.recipes.Cooking.Stew and got.totals.quests == 300 and got.guild == false, "fields differ")
 assert(rec.class == "PALADIN" and rec.level == 12 and rec.played == 777 and rec.c == 0 and rec.x == 10, "summary wrong")
+assert(rec.battleTag == "Bromm#1234", "BattleTag not synced")
 local roster = z.env.RoadToSixtyDB.roster
 assert(roster["Player-1-FFFF"] == rec and rec.key == "Player-1-FFFF", "not on the roster")
 assert(z.sentMax <= 255 and b.sentMax <= 255, "message too long")

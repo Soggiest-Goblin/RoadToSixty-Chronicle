@@ -12,7 +12,8 @@ local _, ns = ...
 --
 --   RoadToSixtyChronicleDB.friends[key] = {
 --     name, realm, class, level, zone, c, x, y, seen, played, synced (time),
---     guid, journey = in the form of RoadToSixtyCharDB,
+--     battleTag (theirs, for grouping their characters), guid,
+--     journey = in the form of RoadToSixtyCharDB,
 --     key = guid, chronicleFriend = true,
 --   }
 --
@@ -280,6 +281,10 @@ local function Apply(rec, b)
         rec.c, rec.x, rec.y = b.c, b.x, b.y
     end
     if type(b.played) == "number" then rec.played = b.played end
+    if type(b.tag) == "string" and #b.tag <= 32 and b.tag:find("^[^#|%c]+#%d+$") then rec.battleTag = b.tag end
+    -- A character new to their roster has no last position yet.
+    local last = segments[#segments]
+    if last and not rec.c then rec.c, rec.x, rec.y = last.c, last.x, last.y end
     rec.realm = rec.realm or GetRealmName()
     rec.seen = ns.Now()
     Join(rec)
@@ -383,8 +388,10 @@ local function BuildBatch(have)
 
     local guid = ns.Clean(UnitGUID("player"))
     local entry = Roster() and Roster()[guid]
+    local known, tag = pcall(function() return select(2, BNGetInfo()) end)
     local batch = {
         g = guid, j = journeyId, r = reset or nil, s = {}, class = select(2, UnitClass("player")),
+        tag = known and ns.Clean(tag) or nil,
         level = UnitLevel("player"), played = char.played,
         zone = entry and entry.zone, c = entry and entry.c, x = entry and entry.x, y = entry and entry.y,
     }

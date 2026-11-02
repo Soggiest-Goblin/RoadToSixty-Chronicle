@@ -27,7 +27,9 @@ Choose Sync to fetch the journey of the character they're playing. Each of their
 
 Click a friend to replay their journey and see their History, or tick the box to draw their path beside yours. They also appear in the Characters tab the next time the map opens.
 
-Adding someone shares your current character's journey with them, including play times and the names of people you've grouped with. Remove stops sharing with them and deletes their journey from your game. Your `RoadToSixty_Chronicle.lua` file holds your friends' synced journeys, so sending it to someone else shares those too.
+In the Characters tab, friends' characters are tagged with their BattleTag, and the filter button shows everyone, just yours, or one friend's characters. Tick the characters to play, then use Together at the top right of the map. Real plays by the real date and time, so a character that logged off waits on the map until it returns. A second click switches to Played, which starts everyone together and plays only their time in game. These need this repo's `RoadToSixty` fork.
+
+Adding someone shares your current character's journey and your BattleTag with them, including play times and the names of people you've grouped with. Remove stops sharing with them and deletes their journey from your game. Your `RoadToSixty_Chronicle.lua` file holds your friends' synced journeys, so sending it to someone else shares those too.
 
 Works on Forever, Classic Era and the Anniversary realms, wherever Road to Sixty does: both folders go in that game's `Interface\AddOns`.
 

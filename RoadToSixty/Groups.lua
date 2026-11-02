@@ -1,0 +1,366 @@
+local _, ns = ...
+
+-- Records the groups the character is in and the players met in them
+-- (issue #16). Groups change all the time, raids most: people join late,
+-- leave, come back and move between subgroups. Every change is logged, so
+-- who was there at any moment can be worked out later. Journal events:
+--   grp   kind, members, leader, subgroup
+--                                 joined or formed a group: kind "party" or
+--                                 "raid"; members = the others in it then;
+--                                 leader = true when the player led it;
+--                                 subgroup = the player's own, in a raid
+--   grpa  member                  someone joined, or came back
+--   grpl  guid, level             someone left, at that level
+--   grps  guid, subgroup          someone moved to another raid subgroup;
+--                                 guid false for the player
+--   grpk  kind                    the group became a raid, or a party again
+--   grpx  summary                 the group ended (left, disbanded, or found
+--                                 gone at login): { duration, kills, xp,
+--                                 quests, deaths, instances, met = players
+--                                 who were in it, levels = guid -> level of
+--                                 those still in it at the end }
+-- A member is { guid, name, race, sex, class, level, guild, subgroup }: name
+-- "Name-Realm" for another realm, race and class as the client's file names
+-- (NightElf, WARRIOR), sex "Male" or "Female", level and guild when they
+-- joined, subgroup 1-8 in a raid. Details the client had not loaded yet are
+-- filled in on a later roster update.
+--
+-- ns.char.people is everyone grouped with: guid -> { name, race, sex,
+-- class, level, guild (last seen), first, last (times), c, x, y (where first
+-- met), and these tallies by PC (Tally.lua), nil for none: groups, seconds
+-- (party groups shared, time in them), raids, raidSeconds (the same for
+-- raids), dungeons, raidRuns (dungeon and raid instances run together, by
+-- the instance's type) }.
+-- Parties and raids are counted apart, so forty strangers in a raid do not
+-- crowd out the people actually played with.
+--
+-- ns.char.group is the group now, saved so it survives a reload or logout:
+-- { t, kind, totals at the start, members = guid -> time joined (those in
+-- it now), everMet = guid -> true (all who were ever in it), met = their
+-- count, levels and subs = guid -> level and subgroup last seen, mySub =
+-- the player's subgroup, seen =
+-- last time it was known to still exist, pc = the PC that started it (its
+-- time counts under it) }.
+--
+-- Groups inside battlegrounds and other instance groups are left out: only
+-- the player's own (home) group counts.
+
+local Groups = {}
+ns.Groups = Groups
+
+local READY = 5             -- seconds after login before reading the group
+local SETTLE = 0.5          -- roster updates come in bursts; read once after them
+local FORMING = 10          -- seconds after a group starts in which members still count as there from its start
+local SEXES = { [2] = "Male", [3] = "Female" }
+
+local ready = false
+local pending = false
+
+local function InGroup()
+    if LE_PARTY_CATEGORY_HOME then
+        return IsInGroup(LE_PARTY_CATEGORY_HOME)
+    end
+    return IsInGroup()
+end
+
+-- A unit as a member, or nil when the client does not know it well enough yet.
+local function ReadUnit(unit, subgroup)
+    local guid = UnitGUID(unit)
+    local name, realm = UnitName(unit)
+    if not guid or not name or name == UNKNOWNOBJECT or name == "" then return end
+    local _, race = UnitRace(unit)
+    local _, class = UnitClass(unit)
+    local level = UnitLevel(unit)
+    local guild = GetGuildInfo(unit)
+    return {
+        guid, realm and realm ~= "" and (name .. "-" .. realm) or name, race,
+        SEXES[UnitSex(unit)], class, level and level > 0 and level or nil, guild, subgroup,
+    }
+end
+
+-- The others in the group now: guid -> member, the kind of group, the
+-- player's own subgroup in a raid, and the GUIDs of members there whose
+-- name the client has not loaded yet (after a loading screen, or far off),
+-- who have not left.
+function Groups:Read()
+    local roster, mySub, unknown = {}, nil, {}
+    local raid = IsInRaid()
+    local count = raid and GetNumGroupMembers() or GetNumSubgroupMembers()
+    for i = 1, count do
+        local unit = (raid and "raid" or "party") .. i
+        local subgroup = raid and select(3, GetRaidRosterInfo(i)) or nil
+        if UnitIsUnit(unit, "player") then
+            mySub = subgroup
+        else
+            local m = ReadUnit(unit, subgroup)
+            if m then
+                roster[m[1]] = m
+            else
+                local guid = UnitGUID(unit)
+                if guid then unknown[guid] = true end
+            end
+        end
+    end
+    return roster, raid and "raid" or "party", mySub, unknown
+end
+
+-- Inside a battleground or arena the group and unit calls give its group,
+-- not the home group this records, whose members cannot be read there.
+-- Only there: a dungeon group from a finder is one to record.
+local function InBattleground()
+    local _, kind = IsInInstance()
+    return kind == "pvp" or kind == "arena"
+end
+
+-- Notes a member in ns.char.people: met now, or seen again. newGroup is
+-- the kind of group when they are new to it, to count it.
+local function Meet(m, t, newGroup)
+    local people = ns.char.people
+    local p = people[m[1]]
+    if not p then
+        local c, x, y = ns.Recorder:Position()
+        p = { first = t, c = c, x = x, y = y }
+        people[m[1]] = p
+    end
+    p.name, p.race, p.sex, p.class = m[2], m[3] or p.race, m[4] or p.sex, m[5] or p.class
+    p.level, p.guild = m[6] or p.level, m[7] or p.guild
+    p.last = t
+    if newGroup == "raid" then
+        ns.Tally.Add(p, "raids", ns.pc, 1)
+    elseif newGroup then
+        ns.Tally.Add(p, "groups", ns.pc, 1)
+    end
+end
+
+-- Adds the time a member spent in a group of kind up to t to their total,
+-- under pc: the PC that started the group, so two PCs ending it count once.
+local function Part(guid, since, t, kind, pc)
+    local p = ns.char.people[guid]
+    if p and since then
+        local seconds = math.max(0, t - since)
+        pc = pc or ns.pc
+        if kind == "raid" then
+            ns.Tally.Add(p, "raidSeconds", pc, seconds)
+        else
+            ns.Tally.Add(p, "seconds", pc, seconds)
+        end
+        p.last = t
+    end
+end
+
+local function Start(roster, kind, mySub, t)
+    local totals = ns.char.totals
+    local members, everMet, levels, subs, list = {}, {}, {}, {}, {}
+    for guid, m in pairs(roster) do
+        members[guid], everMet[guid] = t, true
+        levels[guid], subs[guid] = m[6], m[8]
+        list[#list + 1] = m
+        Meet(m, t, kind)
+    end
+    ns.char.group = {
+        t = t, kind = kind, pc = ns.pc, members = members, everMet = everMet, levels = levels, subs = subs,
+        seen = t, met = #list, mySub = mySub,
+        kills = totals.kills, xp = totals.killXP + totals.questXP, quests = totals.quests,
+        deaths = totals.deaths, instances = totals.instances,
+    }
+    ns.Journal:Log("grp", kind, list, UnitIsGroupLeader("player") or nil, mySub)
+end
+
+-- Logs the group's end at time t (now, or when it was last known to exist).
+local function End(t)
+    local g, totals = ns.char.group, ns.char.totals
+    local levels = {}
+    for guid, since in pairs(g.members) do
+        Part(guid, since, t, g.kind, g.pc)
+        levels[guid] = g.levels[guid]
+    end
+    local summary = {
+        duration = math.max(0, t - g.t),
+        kills = totals.kills - g.kills,
+        xp = totals.killXP + totals.questXP - g.xp,
+        quests = totals.quests - g.quests,
+        deaths = totals.deaths - g.deaths,
+        instances = totals.instances - g.instances,
+        met = g.met,
+        levels = levels,
+    }
+    ns.char.group = nil
+    -- Found gone at login: the event goes where it happened, among this
+    -- session's first events, so the journal stays in time order.
+    local c, x, y = ns.Recorder:Position()
+    local e = { t, "grpx", c or -1, x or 0, y or 0, summary }
+    local events = ns.char.events
+    local at = #events + 1
+    while at > 1 and events[at - 1][1] > t do
+        at = at - 1
+    end
+    table.insert(events, at, e)
+end
+
+-- Fills in what the client had not loaded when members were logged, in
+-- this group's events.
+local function FillIn(roster)
+    for i = #ns.char.events, 1, -1 do
+        local e = ns.char.events[i]
+        if e[2] == "grp" or e[2] == "grpa" then
+            local list = e[2] == "grp" and e[7] or { e[6] }
+            for _, m in ipairs(list) do
+                local now = roster[m[1]]
+                if now then
+                    for k = 3, 8 do
+                        m[k] = m[k] or now[k]
+                    end
+                end
+            end
+            if e[2] == "grp" then break end
+        end
+    end
+end
+
+-- The grp event that started the group now.
+local function StartEvent()
+    local events = ns.char.events
+    for i = #events, 1, -1 do
+        if events[i][2] == "grp" then return events[i] end
+    end
+end
+
+-- Compares the group with the one saved and logs what changed.
+function Groups:Check()
+    if not ready or ns.char.seeded then return end
+    local g, t = ns.char.group, ns.Now()
+    if not InGroup() then
+        if g then End(t) end
+        return
+    end
+    -- (the home group's own state still reads right there: it ends above)
+    if InBattleground() then return end
+    local roster, kind, mySub, unknown = self:Read()
+    if not g then
+        Start(roster, kind, mySub, t)
+        return
+    end
+    g.seen = t
+    g.levels, g.subs = g.levels or {}, g.subs or {}
+
+    -- A party becoming a raid (or back): time so far counts as the old kind.
+    if kind ~= g.kind then
+        for guid, since in pairs(g.members) do
+            Part(guid, since, t, g.kind, g.pc)
+            g.members[guid] = t
+        end
+        g.kind = kind
+        ns.Journal:Log("grpk", kind)
+    end
+    if mySub and mySub ~= g.mySub then
+        if g.mySub then ns.Journal:Log("grps", false, mySub) end
+        g.mySub = mySub
+    end
+
+    for guid, since in pairs(g.members) do
+        if not roster[guid] and not unknown[guid] then
+            Part(guid, since, t, g.kind, g.pc)
+            g.members[guid] = nil
+            ns.Journal:Log("grpl", guid, g.levels[guid])
+        end
+    end
+    for guid, m in pairs(roster) do
+        if not g.members[guid] then
+            g.members[guid] = t
+            -- Someone coming back is logged, but still the same group to them.
+            local new = not g.everMet[guid]
+            if new then
+                g.everMet[guid] = true
+                g.met = g.met + 1
+            end
+            Meet(m, t, new and kind)
+            -- The client can take a moment to know who is in a group just
+            -- joined, so those appearing in its first seconds belong to it
+            -- from the start.
+            local start = new and t - g.t <= FORMING and StartEvent()
+            if start then
+                table.insert(start[7], m)
+            else
+                ns.Journal:Log("grpa", m)
+            end
+        else
+            Meet(m, t, nil)
+            if m[8] and g.subs[guid] and m[8] ~= g.subs[guid] then
+                ns.Journal:Log("grps", guid, m[8])
+            end
+        end
+        ns.Journal:JoinRun(guid)
+        g.levels[guid] = m[6] or g.levels[guid]
+        g.subs[guid] = m[8] or g.subs[guid]
+    end
+    FillIn(roster)
+end
+
+-- After a reload or logout: a group still there carries on, with the time
+-- away not counted; one gone since ended when it was last seen.
+function Groups:Resume()
+    local g = ns.char.group
+    if not g then return end
+    if InGroup() then
+        local t = ns.Now()
+        for guid, since in pairs(g.members) do
+            Part(guid, since, g.seen, g.kind, g.pc)
+            g.members[guid] = t
+        end
+        g.seen = t
+    else
+        End(g.seen)
+    end
+end
+
+-- The guids of the others in the group now, for a dungeon run's summary.
+function Groups:Current()
+    local g = ns.char.group
+    if not g then return end
+    local list = {}
+    for guid in pairs(g.members) do
+        list[#list + 1] = guid
+    end
+    return #list > 0 and list or nil
+end
+
+-- Counts a dungeon or raid run (raid true) for everyone in it, under pc
+-- (the PC that started the run; this PC when not given).
+function Groups:CountRun(guids, raid, pc)
+    pc = pc or ns.pc
+    for _, guid in ipairs(guids or {}) do
+        local p = ns.char.people[guid]
+        if p then
+            if raid then
+                ns.Tally.Add(p, "raidRuns", pc, 1)
+            else
+                ns.Tally.Add(p, "dungeons", pc, 1)
+            end
+        end
+    end
+end
+
+local function CheckSoon()
+    if pending then return end
+    pending = true
+    C_Timer.After(SETTLE, function()
+        pending = false
+        ns.SafeCall(Groups.Check, Groups)
+    end)
+end
+
+ns.On("PLAYER_LOGIN", function()
+    C_Timer.After(READY, function()
+        ready = true
+        ns.SafeCall(function()
+            Groups:Resume()
+            Groups:Check()
+        end)
+    end)
+end)
+ns.On("GROUP_ROSTER_UPDATE", CheckSoon)
+ns.On("GROUP_LEFT", CheckSoon)
+ns.On("PLAYER_LOGOUT", function()
+    if ns.char.group then ns.char.group.seen = ns.Now() end
+end)
+

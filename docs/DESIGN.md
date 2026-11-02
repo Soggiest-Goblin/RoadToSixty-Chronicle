@@ -74,15 +74,22 @@ Costs of working from outside Road to Sixty:
 - Events changed after they were sent are only refreshed for the latest 20.
 - Sync is by whisper, so it needs the same realm and faction.
 
-### 3. Changes that need Road to Sixty
+### 3. The fork
 
-Road to Sixty currently draws other characters' paths in full and without animation (`BuildOtherTracks`, `Map.lua:1349`, called at `Map.lua:3064` and `Map.lua:3169`). Only the selected character replays. The checkboxes are in `Panel.lua:849` and `Panel.lua:926`.
+Jordan preferred a fork to taking replay changes upstream, so `RoadToSixty/` holds 1.18.0 with these changes:
 
 | Change | Where |
 |---|---|
-| Replay several characters at the same time | `Map.lua` |
-| All / Just Mine / specific friends toggles in the map's own list | `Panel.lua` |
-| Chronicle events on the map, such as notes and flights | `Map.lua` |
+| Replay several characters at once, by real time or time played | `Map.lua` |
+| Everyone / My characters / per-friend filter, All and None buttons, BattleTag tags | `Panel.lua` |
+
+The fork keeps the folder and saved variable names, so journeys carry over with no migration and Chronicle's dependency is unchanged. It can't run beside Jordan's addon, and an addon manager updating Road to Sixty would overwrite it. Giving it its own name would need players' saved files moving.
+
+The real-time clock uses each point's recorded time. The played clock adds up the time between points, except across a login (`j = "l"`), or a break of over 30 minutes with no reason in saves too old to mark logins. Standing still in game counts as played.
+
+Friends' BattleTags come from `BNGetInfo` on their client, sent with each batch, and group a friend's characters together. A friend synced before this change shows as `Synced friend` until their next sync.
+
+Still to do: Chronicle events on the map, such as notes and flights, and popups during a together replay.
 
 ## Questions for Jordan
 
@@ -101,6 +108,7 @@ Road to Sixty currently draws other characters' paths in full and without animat
 - `two_clients.lua` covers a synctest between two Era clients with a modelled send limit, plus junk messages.
 - `settings.lua` covers the settings page against stand-in widgets, so it checks behaviour but not how the page looks.
 - `friends.lua` covers sync between two clients, including consent, resuming, hostile batches and the roster, and the tab against stand-ins for Road to Sixty's panel.
+- `together.lua` runs the replay section of the fork's real `Map.lua` on stand-ins, and the character filter from its real `Panel.lua`.
 
 Earlier one-off checks of the viewer aren't in this repo. They used a 600,000-point file (95 ms to parse, 226 ms to build, 56 fps) and a hostile file to test escaping.
 

@@ -1,0 +1,454 @@
+local _, ns = ...
+
+-- Records rare mobs (issue #6) as journal events:
+--   rare  name, classification, level, npcID, how   the first kill of a
+--         rare: classification "rare" or "rareelite"; level -1 when shown as
+--         a skull; how it was known: "x" its XP message, "l" its loot, "c"
+--         its corpse clicked. name or npcID is nil when it could not be
+--         read (a kill with no XP inside an instance has neither until it
+--         is looted).
+--
+-- ns.char.rares is the rares killed: key -> { count (a tally by PC, see
+-- Tally.lua), first kill time, name, npcID, classification }, key the NPC ID
+-- when known, else the name, else the classification and time; nil until
+-- the first.
+--
+-- What the client lets an addon read on Forever decides how (see CLAUDE.md):
+-- - In the open world a mob's name and GUID can be read, even in combat.
+--   Every rare targeted, moused over or with a nameplate is remembered by
+--   GUID. A kill message naming it, its loot (loot sources are GUIDs), or
+--   its corpse clicked records it, so kills with no XP count too.
+-- - Inside instances names and GUIDs are secret; classification and level
+--   are not. A kill there is a rare's when a rare targeted while alive is
+--   the target when the XP message comes, and the target is gone (or dead)
+--   within KILL_SECONDS after it, the name coming from the message; the
+--   message comes while the dying target still shows alive, and the target
+--   is cleared at once. A dead rare corpse clicked records one not caught
+--   so (no XP, or killed while not targeted), named from the kill list when
+--   it has exactly one kill in the last LOOKBACK seconds; looting it adds
+--   the NPC ID.
+-- A target the player was not tapped on (someone else's kill) is not one.
+
+local Rares = {}
+ns.Rares = Rares
+
+local KILL_SECONDS = 1          -- the target is gone this soon after its XP message
+local SEEN_SECONDS = 30 * 60    -- how long a rare seen counts
+local SAME_CORPSE = 10 * 60     -- a rare corpse inside an instance with the same classification
+                                -- and level this soon after one recorded is the same one
+local LOOKBACK = 15             -- seconds back the kill list may name a rare corpse clicked
+
+local Log = function(...) ns.Journal:Log(...) end
+
+local RARE = { rare = true, rareelite = true }
+
+local seen = {}     -- open world: GUID -> unit info (see Read) of a rare seen alive, with t = GetTime()
+local done = {}     -- GUID -> true once its kill is recorded this session
+local recent = {}   -- inside instances: { classification, level, GetTime() } of kills recorded
+-- The rare targeted while alive (unit info), and a kill message waiting for
+-- its target to go: { name, GetTime() }. lost is the engaged rare whose
+-- target went with no message yet: { info, GetTime() }.
+local engaged, pending, lost
+
+
+local function Secret(v)
+    return issecretvalue and issecretvalue(v) or false
+end
+
+-- A value from fn(...), or nil when it errors or is secret.
+local function Read(fn, ...)
+    if not fn then return end
+    local ok, value = pcall(fn, ...)
+    if ok and not Secret(value) then return value end
+end
+
+local function NpcID(guid)
+    local kind, id = tostring(guid or ""):match("^(%a+)%-%d+%-%d+%-%d+%-%d+%-(%d+)")
+    if kind == "Creature" or kind == "Vehicle" then return tonumber(id) end
+end
+
+-- What can be read of a mob unit: { class, level, guid, name, npc, dead,
+-- tapDenied }, each nil when secret; nil for no unit or a player.
+local function UnitInfo(unit)
+    if not UnitExists(unit) or Read(UnitIsPlayer, unit) then return end
+    local guid = Read(UnitGUID, unit)
+    return {
+        class = Read(UnitClassification, unit), level = Read(UnitLevel, unit),
+        guid = guid, name = Read(UnitName, unit), npc = NpcID(guid),
+        dead = Read(UnitIsDead, unit) == true, tapDenied = Read(UnitIsTapDenied, unit) == true,
+    }
+end
+
+local function IsRare(info)
+    if not info then return false end
+    local rare = RARE[info.class] or false
+    return rare
+end
+
+-- Whether this journey records rares now: not a seeded one, unless testing.
+local function Recording()
+    local skip = ns.char.seeded
+    return not skip
+end
+
+-- The rares entry with this name, for a kill message of a rare killed before.
+local function KnownByName(name)
+    for _, r in pairs(ns.char.rares or {}) do
+        if r[3] == name then return r end
+    end
+end
+
+-- The entry of rares (a journey's) for key, or for NPC ID npc: an entry
+-- saved under its name inside an instance learns its NPC ID later.
+local function Known(rares, key, npc)
+    if rares[key] then return rares[key] end
+    if not npc then return end
+    for _, r in pairs(rares) do
+        if r[4] == npc then return r end
+    end
+end
+
+-- Records a rare's kill: logs the first of each, counts the rest. info is
+-- its unit info, name the best name known for it, how as in the header.
+local function Record(info, name, how)
+    if info.guid then
+        if done[info.guid] then return end
+        done[info.guid] = true
+    else
+        recent[#recent + 1] = { info.class, info.level, GetTime() }
+    end
+    name = name or info.name
+    if not Recording() then return end
+    local rares = ns.char.rares or {}
+    ns.char.rares = rares
+    -- One with neither (no XP inside an instance) is a kill of its own.
+    local key = info.npc or name or ("%s %d"):format(tostring(info.class), ns.Now())
+    local known = Known(rares, key, info.npc)
+    if known then
+        ns.Tally.Add(known, 1, ns.pc, 1)
+        known[3] = known[3] or name
+        return
+    end
+    Log("rare", name, info.class, info.level, info.npc, how)
+    rares[key] = { { [ns.pc] = 1 }, ns.Now(), name, info.npc, info.class }
+end
+
+-- Inside an instance (no GUID), a rare corpse clicked has no name; if the
+-- kill list has exactly one kill in the last LOOKBACK seconds, that was it
+-- (several, say from area damage, could be any of them).
+local function RecentKillName()
+    if ns.view ~= ns.char then return end   -- Journal:Kills reads the journey shown
+    local name, count = nil, 0
+    local kills = ns.Journal:Kills()
+    for k = #kills, 1, -1 do
+        if kills[k].t < ns.Now() - LOOKBACK then break end
+        name, count = kills[k].name, count + 1
+    end
+    return count == 1 and name or nil
+end
+
+-- Inside an instance (no GUID): whether a rare corpse is one recorded lately.
+local function RecentCorpse(info)
+    for i = #recent, 1, -1 do
+        local r = recent[i]
+        if GetTime() - r[3] > SAME_CORPSE then break end
+        if r[1] == info.class and r[2] == info.level then return true end
+    end
+    return false
+end
+
+-- Remembers a rare seen alive in the open world, by GUID.
+function Rares:Look(unit)
+    local info = UnitInfo(unit)
+    if info and info.guid and not info.dead and IsRare(info) then
+        info.t = GetTime()
+        seen[info.guid] = info
+    end
+end
+
+-- The rare remembered by GUID, if seen lately.
+local function Seen(guid)
+    local s = guid and seen[guid]
+    if s and GetTime() - s.t <= SEEN_SECONDS then return s end
+end
+
+local function Fresh()
+    return pending and engaged and GetTime() - pending[2] <= KILL_SECONDS
+end
+
+local function Confirm()
+    local name, info = pending[1], engaged
+    pending, engaged = nil, nil
+    Record(info, name, "x")
+end
+
+-- A new target: the engaged rare gone just after its kill message was its
+-- kill; a rare corpse clicked is one (if not someone else's); a rare alive
+-- is engaged (and, in the open world, remembered).
+function Rares:Target()
+    local info = UnitInfo("target")
+    local gone = not info or info.dead
+    if Fresh() and gone then
+        Confirm()
+    end
+    lost = engaged and not pending and gone and { engaged, GetTime() } or nil
+    pending, engaged = nil, nil
+    local rare = info and IsRare(info) and info or nil
+    if not rare then return end
+    if not rare.dead then
+        engaged = rare
+        self:Look("target")
+    elseif not rare.tapDenied and (rare.guid or not RecentCorpse(rare)) then
+        Record(Seen(rare.guid) or rare, not rare.guid and RecentKillName() or nil, "c")
+    end
+end
+
+-- The target's health changed: a target seen dead just after its kill
+-- message also confirms it.
+function Rares:Health(unit)
+    if unit ~= "target" or not Read(UnitIsDead, "target") then return end
+    if Fresh() then Confirm() end
+end
+
+-- A kill from the XP message (Journal.lua passes each one here).
+function Rares:Killed(name)
+    if not name then return end
+    -- Open world: a rare seen alive with this name.
+    for guid, s in pairs(seen) do
+        if s.name == name and not done[guid] and Seen(guid) then
+            Record(s, name, "x")
+            if engaged and engaged.guid == guid then engaged = nil end
+            return
+        end
+    end
+    -- The engaged rare's target went just before its message.
+    if not engaged and lost and GetTime() - lost[2] <= KILL_SECONDS then
+        engaged, pending, lost = lost[1], { name, GetTime() }, nil
+        Confirm()
+        return
+    end
+    if engaged then
+        pending = { name, GetTime() }
+        if Read(UnitIsDead, "target") then Confirm() end
+        return
+    end
+    -- A rare killed before, met again unseen: counted.
+    local known = KnownByName(name)
+    if known and Recording() then ns.Tally.Add(known, 1, ns.pc, 1) end
+end
+
+-- Loot: its sources are GUIDs, readable even inside instances. A rare seen
+-- alive is recorded (a kill with no XP). Inside an instance, looting a rare
+-- corpse targeted gives its NPC ID to the kill recorded without one.
+function Rares:Looted()
+    local npcs, count = {}, 0
+    for slot = 1, (Read(GetNumLootItems) or 0) do
+        local sources = { pcall(GetLootSourceInfo, slot) }
+        if table.remove(sources, 1) then
+            for i = 1, #sources, 2 do
+                local guid = not Secret(sources[i]) and sources[i] or nil
+                local s = Seen(guid)
+                if s and not done[guid] then Record(s, s.name, "l") end
+                local npc = NpcID(guid)
+                if npc and not npcs[npc] then
+                    npcs[npc] = true
+                    count = count + 1
+                end
+            end
+        end
+    end
+    local target = UnitInfo("target")
+    if count ~= 1 or not (target and target.dead and IsRare(target)) or target.guid then return end
+    local npc = next(npcs)
+    local events = ns.char.events
+    for i = #events, 1, -1 do
+        local e = events[i]
+        if e[1] < ns.Now() - SAME_CORPSE then break end
+        if e[2] == "rare" and not e[9] and e[7] == target.class and e[8] == target.level then
+            e[9] = npc
+            -- Its entry keeps its key (moving it would make two after a
+            -- sync merge with a copy saved before) but learns the NPC ID,
+            -- by which a kill in the open world finds it (Known).
+            local entry = ns.char.rares and e[6] and ns.char.rares[e[6]]
+            if entry and not entry[4] then entry[4] = npc end
+            return
+        end
+    end
+end
+
+-- Portraits ------------------------------------------------------------------------
+
+-- A rare's portrait, picked from candidates on a screenshot: its model, drawn
+-- from the NPC ID, in a dark square with a thin silver edge, with the silver
+-- rare dragon at the top right. The client only draws creatures it has
+-- seen, so with no NPC ID, or no model loaded a moment later, the dragon
+-- alone shows.
+local SILVER = { 0.78, 0.8, 0.86 }
+local DRAGON = "nameplates-icon-elite-silver"
+local LOAD_SECONDS = 1          -- a model not loaded by then is not coming
+
+function Rares:CreatePortrait(parent, size)
+    local f = CreateFrame("Frame", nil, parent)
+    f:SetSize(size, size)
+    f.ring = f:CreateTexture(nil, "BACKGROUND")
+    f.ring:SetColorTexture(unpack(SILVER))
+    f.ring:SetAllPoints()
+    f.inner = f:CreateTexture(nil, "BORDER")
+    f.inner:SetColorTexture(0.1, 0.1, 0.12)
+    f.inner:SetPoint("TOPLEFT", 1, -1)
+    f.inner:SetPoint("BOTTOMRIGHT", -1, 1)
+    f.model = CreateFrame("PlayerModel", nil, f)
+    f.model:SetPoint("TOPLEFT", 1, -1)
+    f.model:SetPoint("BOTTOMRIGHT", -1, 1)
+    -- The dragon over the model, which draws above its parent's textures.
+    f.top = CreateFrame("Frame", nil, f)
+    f.top:SetAllPoints()
+    f.top:SetFrameLevel(f.model:GetFrameLevel() + 1)
+    f.dragon = f.top:CreateTexture(nil, "OVERLAY")
+    f.dragon:SetAtlas(DRAGON)
+    f.dragon:SetSize(size * 0.5, size * 0.5)
+    f.dragon:SetPoint("CENTER", f, "TOPRIGHT", -size * 0.1, -size * 0.1)
+    f.icon = f.top:CreateTexture(nil, "OVERLAY")
+    f.icon:SetAtlas(DRAGON)
+    f.icon:SetAllPoints()
+    return f
+end
+
+local function ShowModel(f, on)
+    f.ring:SetShown(on)
+    f.inner:SetShown(on)
+    f.model:SetShown(on)
+    f.dragon:SetShown(on)
+    f.icon:SetShown(not on)
+end
+
+-- Shows npc's portrait on f (from CreatePortrait), or the dragon without one.
+function Rares:SetPortrait(f, npc)
+    f.npc = npc
+    if not npc then
+        ShowModel(f, false)
+        return
+    end
+    ShowModel(f, true)
+    local model = f.model
+    model:ClearModel()
+    pcall(model.SetCreature, model, npc)
+    pcall(model.SetPortraitZoom, model, 1)
+    C_Timer.After(LOAD_SECONDS, function()
+        if f.npc ~= npc then return end
+        local ok, file = pcall(model.GetModelFileID, model)
+        if not (ok and file and file ~= 0) then ShowModel(f, false) end
+    end)
+end
+
+-- The card ---------------------------------------------------------------------------
+
+-- Hovering a rare (a History row or a map marker) shows a card with its
+-- portrait and what is known of the kill. Markers and rows show only the
+-- silver dragon: a live model each cost too much frame rate, one at a time
+-- in the card does not.
+local CARD_PORTRAIT = 72
+local CARD_PAD = 10
+local CARD_TEXT = 190
+local HOW = { l = "No experience: recognised by its loot", c = "No experience: recognised by its corpse" }
+local card
+
+local function CreateCard()
+    card = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
+    card:SetFrameStrata("TOOLTIP")
+    card:SetClampedToScreen(true)
+    card:SetBackdrop({
+        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 14, insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    })
+    card:SetBackdropColor(0.04, 0.04, 0.05, 0.94)
+    card.portrait = Rares:CreatePortrait(card, CARD_PORTRAIT)
+    card.portrait:SetPoint("TOPLEFT", CARD_PAD, -CARD_PAD)
+    card.title = card:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    card.title:SetPoint("TOPLEFT", card.portrait, "TOPRIGHT", CARD_PAD, -2)
+    card.title:SetWidth(CARD_TEXT)
+    card.title:SetJustifyH("LEFT")
+    card.title:SetTextColor(0.85, 0.88, 1)
+    card.text = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    card.text:SetPoint("TOPLEFT", card.title, "BOTTOMLEFT", 0, -4)
+    card.text:SetWidth(CARD_TEXT)
+    card.text:SetJustifyH("LEFT")
+    card.text:SetSpacing(2)
+end
+
+-- The character's level at time t in the journey shown.
+local function LevelAt(t)
+    local level
+    for _, e in ipairs(ns.view.events) do
+        if e[1] > t then break end
+        if e[2] == "on" or e[2] == "lvl" then level = e[6] end
+    end
+    return level
+end
+
+-- Shows the card of rare event e next to owner, on its right, or on its
+-- left with side "left". where names the place.
+function Rares:ShowCard(owner, e, where, side)
+    if not card then CreateCard() end
+    local title, detail = self:Describe(e)
+    card.title:SetText(e[6] or title:gsub("^Killed ", ""):gsub("^a", "A"))
+    local lines = { detail }
+    if where then lines[#lines + 1] = where end
+    lines[#lines + 1] = tostring(date("%d %b %Y, %H:%M", e[1]))
+    local level = LevelAt(e[1])
+    if level then lines[#lines + 1] = ("You were level %d"):format(level) end
+    local known = ns.view.rares and (Known(ns.view.rares, e[9] or e[6] or "", e[9]) or e[6] and ns.view.rares[e[6]])
+    local kills = known and ns.Tally.Total(known[1]) or 0
+    if kills > 1 then lines[#lines + 1] = ("Killed %d times"):format(kills) end
+    if HOW[e[10]] then lines[#lines + 1] = "|cff999999" .. HOW[e[10]] .. "|r" end
+    card.text:SetText(table.concat(lines, "\n"))
+    self:SetPortrait(card.portrait, e[9])
+    local textHeight = card.title:GetStringHeight() + 4 + card.text:GetStringHeight()
+    card:SetSize(CARD_PORTRAIT + CARD_TEXT + 3 * CARD_PAD, math.max(CARD_PORTRAIT, textHeight) + 2 * CARD_PAD)
+    card:ClearAllPoints()
+    if side == "left" then
+        card:SetPoint("TOPRIGHT", owner, "TOPLEFT", -4, 0)
+    else
+        card:SetPoint("TOPLEFT", owner, "TOPRIGHT", 4, 0)
+    end
+    card:Show()
+end
+
+function Rares:HideCard()
+    if card then card:Hide() end
+end
+
+-- Showing them ------------------------------------------------------------------
+
+local CLASSES = { rare = "Rare", rareelite = "Rare elite", elite = "Elite (test)", normal = "Normal (test)" }
+
+-- How to show a rare event: title and detail (what kind of entry, to go
+-- before the place).
+function Rares:Describe(e)
+    local class, level = CLASSES[e[7]] or "Rare", e[8]
+    local detail = class
+    if level then
+        detail = detail .. (level < 0 and ", level ??" or (", level " .. level))
+    end
+    return "Killed " .. (e[6] or ("a " .. class:lower())), detail
+end
+
+-- Rares killed in the journey shown: { name, count, first time }, first killed first.
+function Rares:List()
+    local list = {}
+    for _, r in pairs(ns.view.rares or {}) do
+        list[#list + 1] = { r[3] or ("a " .. (CLASSES[r[5]] or "Rare"):lower()), ns.Tally.Total(r[1]), r[2] }
+    end
+    table.sort(list, function(a, b) return a[3] < b[3] end)
+    return list
+end
+
+-- Listening ---------------------------------------------------------------------
+
+ns.On("PLAYER_TARGET_CHANGED", function() Rares:Target() end)
+ns.On("UNIT_HEALTH", function(unit) Rares:Health(unit) end)
+ns.On("UPDATE_MOUSEOVER_UNIT", function() Rares:Look("mouseover") end)
+ns.On("NAME_PLATE_UNIT_ADDED", function(unit) Rares:Look(unit) end)
+ns.On("LOOT_OPENED", function() Rares:Looted() end)
+

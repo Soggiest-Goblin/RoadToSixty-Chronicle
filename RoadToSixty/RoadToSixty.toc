@@ -1,0 +1,70 @@
+## Interface: 16001, 11509, 20506
+## Title: Road to Sixty (Chronicle fork)
+## Notes: Records your journey from 1 to 60 and replays it on the map
+## Author: Jordan, fork by Soggiest_Goblin
+## IconTexture: Interface\Icons\Ability_Hunter_Pathfinding
+## AddonCompartmentFunc: RoadToSixty_OnAddonCompartmentClick
+## Version: 1.18.0-chronicle.1
+## SavedVariables: RoadToSixtyDB
+## SavedVariablesPerCharacter: RoadToSixtyCharDB
+## OptionalDeps: RoadToSixty_Sync
+
+Core.lua
+Packed.lua
+Tidy.lua
+Parse.lua
+Tally.lua
+Merge.lua
+Sync.lua
+ChatPatterns.lua
+MinimapTiles.lua
+MinimapTilesAnniversary.lua
+MinimapTilesEra.lua
+ZoneOverlays.lua
+ZoneOverlaysEra.lua
+ZoneOverlaysAnniversary.lua
+ZoneArt.lua
+Gaps.lua
+Cosmic.lua
+Items.lua
+Recorder.lua
+Journal.lua
+LevelChat.lua
+LevelShot.lua
+Crafts.lua
+Guilds.lua
+Reputation.lua
+Mounts.lua
+Rares.lua
+Gathering.lua
+Battlegrounds.lua
+Deaths.lua
+Duels.lua
+Groups.lua
+Enchants.lua
+Sources.lua
+Parties.lua
+Roster.lua
+Range.lua
+Health.lua
+Routes.lua
+Islands.lua
+Portals.lua
+PathCurve.lua
+Style.lua
+Map.lua
+Panel.lua
+GearCard.lua
+Screens.lua
+GearTimeline.lua
+Stats.lua
+GearScreen.lua
+StatsScreen.lua
+QuestPop.lua
+GuildPop.lua
+LevelPop.lua
+KillPop.lua
+KillMarks.lua
+MarkerPiles.lua
+MinimapButton.lua
+Options.lua

@@ -17,8 +17,10 @@ $settings = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadTo
 $minimap = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\MinimapButton.lua"))
 $friends = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\Friends.lua"))
 $friendsTab = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\FriendsTab.lua"))
+$map = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty\Map.lua"))
+$mapPanel = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty\Panel.lua"))
 $failed = 0
-foreach ($test in "mock_client", "two_clients", "settings", "friends") {
+foreach ($test in "mock_client", "two_clients", "settings", "friends", "together") {
     $lua = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "$test.lua"))
     $page = @"
 <!doctype html><meta charset=utf-8><pre id=out>did not finish</pre>
@@ -36,6 +38,10 @@ lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $friends -Compress)));
 lua.lua_setglobal(L,to_luastring("FRIENDS_SRC"));
 lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $friendsTab -Compress)));
 lua.lua_setglobal(L,to_luastring("TAB_SRC"));
+lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $map -Compress)));
+lua.lua_setglobal(L,to_luastring("MAP_SRC"));
+lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $mapPanel -Compress)));
+lua.lua_setglobal(L,to_luastring("PANEL_SRC"));
 let r=lauxlib.luaL_loadstring(L,to_luastring($(ConvertTo-Json $lua -Compress)));
 if(r===0)r=lua.lua_pcall(L,0,0,0);
 document.getElementById("out").textContent=r?"LUA ERROR: "+lua.lua_tojsstring(L,-1):"PASSED";
