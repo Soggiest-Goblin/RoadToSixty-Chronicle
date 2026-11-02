@@ -36,7 +36,7 @@ tests/                   Simulated client tests
 
 You don't need any tools for this. Both players need Road to Sixty installed and running in the same game on the same realm.
 
-1. Sign in to GitHub, open this repo, and choose **Code**, then **Download ZIP**.
+1. Open this repo and choose **Code**, then **Download ZIP**.
 2. Unzip it and copy the `RoadToSixty_Chronicle` folder into that game's `Interface\AddOns` folder, such as `World of Warcraft\_classic_era_\Interface\AddOns`.
 3. Fully restart WoW, because `/reload` doesn't pick up new addon files.
 4. Log in. You should see a book button on the minimap, and `/chron` should report what has been recorded.
@@ -68,6 +68,6 @@ They need Microsoft Edge. The first run downloads the Fengari Lua VM to `tests/.
 
 Road to Sixty is Jordan's addon and isn't included here. This repo depends on it and reads its data, currently tested against version 1.18.0.
 
-The viewer also embeds coastline shapes taken from Road to Sixty's `Gaps/land_*.tga` textures, so it needs Jordan's agreement before this repo or the viewer is made public. No license has been chosen for this repo yet.
+The viewer also embeds coastline shapes taken from Road to Sixty's `Gaps/land_*.tga` textures, used with Jordan's approval. No license has been chosen for this repo yet.
 
 Never commit real `WTF` or `SavedVariables` files. They contain routes, play times and the names of other players. `.gitignore` blocks the usual names and paths.
