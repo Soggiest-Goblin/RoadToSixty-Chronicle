@@ -52,18 +52,27 @@ Exposing the option list and those two calls publicly would remove both costs.
 - Forever may block instance messaging and return secret values
 - Trial and Veteran accounts can't send
 
-At about 240 bytes per second, a full journey is too slow to send as is, so the sync format depends on the measured rate.
+The first live test, by whisper on Classic Era in the open world, delivered every message at all three rates. Sync runs at 3 messages a second, about 40 KB a minute, leaving room under the fastest rate measured.
 
 ### 2. Sync without changing Road to Sixty
 
-- Players approve specific friends, and nothing is shared otherwise.
-- The first sync sends a thinned journey. Later syncs send only what's new.
+Built in `Friends.lua` and `FriendsTab.lua`:
+
+- Adding a friend is the approval. A journey is only sent to, or taken from, a player on the list.
+- A sync is pulled. The asker says what it has, and the sender replies with the next batch of its current character's `RoadToSixtyCharDB`, so a stopped sync resumes and later syncs send only what's new. The journey isn't thinned.
+- Batches are plain text, parsed as data and checked before they're kept. A friend's data can't replace one of the account's own characters.
 - Friends' journeys are stored in Chronicle's own saved variable.
-- At login Chronicle adds them to `RoadToSixtyDB.roster`, and at logout it removes them so they never become part of Road to Sixty's own data.
+- At login Chronicle adds them to `RoadToSixtyDB.roster`, and at logout it removes them so they never become part of Road to Sixty's own data. Login clears any a crash left behind.
 
-The roster already drives the character list, path checkboxes, view switching and stats, so friends should appear there with no Road to Sixty changes. Entries need `.journey`, with segments in `{m,c,t,x,y,d,j}` form, and `showPaths` is keyed by roster key.
+The roster already drives the character list, path checkboxes, view switching and stats, so friends appear there with no Road to Sixty changes.
 
-The risk is that this relies on internal formats, and a crash before logout could leave friends in `RoadToSixtyDB`. Login should clean up any leftovers.
+Costs of working from outside Road to Sixty:
+
+- This relies on its internal formats.
+- The tab finds the map's panel by its structure, shrinks its two tabs to make room, and calls a character row's click scripts, because `Map:ShowJourney` and `Map:RefreshCharacters` are private. If the panel changes, the tab won't appear, and sync and the Characters tab still work.
+- A sync while the map is open reaches the Characters tab the next time the map opens.
+- Events changed after they were sent are only refreshed for the latest 20.
+- Sync is by whisper, so it needs the same realm and faction.
 
 ### 3. Changes that need Road to Sixty
 
@@ -91,6 +100,7 @@ Road to Sixty currently draws other characters' paths in full and without animat
 - `mock_client.lua` covers tracking, both talent API shapes, and secret values.
 - `two_clients.lua` covers a synctest between two Era clients with a modelled send limit, plus junk messages.
 - `settings.lua` covers the settings page against stand-in widgets, so it checks behaviour but not how the page looks.
+- `friends.lua` covers sync between two clients, including consent, resuming, hostile batches and the roster, and the tab against stand-ins for Road to Sixty's panel.
 
 Earlier one-off checks of the viewer aren't in this repo. They used a 600,000-point file (95 ms to parse, 226 ms to build, 56 fps) and a hostile file to test escaping.
 

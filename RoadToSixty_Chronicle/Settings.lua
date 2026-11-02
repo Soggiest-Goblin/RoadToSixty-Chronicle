@@ -252,8 +252,7 @@ local function Refresh()
     UpdateStatus()
 end
 
--- Which of the account's characters the map draws. Friends will join this
--- list once they sync, through the roster.
+-- Which of the roster's characters the map draws, synced friends included.
 local function BuildCharacters()
     Heading("Characters on the map")
     local others = OtherCharacters()
@@ -277,10 +276,10 @@ local function BuildCharacters()
     end
 end
 
--- Sync itself waits on what this measures.
+-- Friends are added and synced in the map's Synced friends tab.
 local function BuildFriends()
     Heading("Friends")
-    Note("Syncing with friends isn't built yet. This test measures how much the game lets two players send, which decides how sync will work. Both players need Chronicle.")
+    Note("Add friends in the Synced friends tab on the journey map. This test measures how fast two players can send data. Both players need Chronicle.")
     local box = CreateFrame("EditBox", nil, body, "InputBoxTemplate")
     box:SetSize(150, 22)
     box:SetPoint("TOPLEFT", LEFT + 6, y)

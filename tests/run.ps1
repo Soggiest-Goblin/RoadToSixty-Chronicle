@@ -15,8 +15,10 @@ if (-not (Test-Path $fengari)) {
 $chronicle = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\Chronicle.lua"))
 $settings = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\Settings.lua"))
 $minimap = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\MinimapButton.lua"))
+$friends = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\Friends.lua"))
+$friendsTab = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\FriendsTab.lua"))
 $failed = 0
-foreach ($test in "mock_client", "two_clients", "settings") {
+foreach ($test in "mock_client", "two_clients", "settings", "friends") {
     $lua = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "$test.lua"))
     $page = @"
 <!doctype html><meta charset=utf-8><pre id=out>did not finish</pre>
@@ -30,6 +32,10 @@ lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $settings -Compress)));
 lua.lua_setglobal(L,to_luastring("SETTINGS_SRC"));
 lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $minimap -Compress)));
 lua.lua_setglobal(L,to_luastring("MINIMAP_SRC"));
+lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $friends -Compress)));
+lua.lua_setglobal(L,to_luastring("FRIENDS_SRC"));
+lua.lua_pushstring(L,to_luastring($(ConvertTo-Json $friendsTab -Compress)));
+lua.lua_setglobal(L,to_luastring("TAB_SRC"));
 let r=lauxlib.luaL_loadstring(L,to_luastring($(ConvertTo-Json $lua -Compress)));
 if(r===0)r=lua.lua_pcall(L,0,0,0);
 document.getElementById("out").textContent=r?"LUA ERROR: "+lua.lua_tojsstring(L,-1):"PASSED";

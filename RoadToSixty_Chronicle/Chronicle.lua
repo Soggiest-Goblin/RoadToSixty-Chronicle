@@ -16,6 +16,7 @@ local addonName, ns = ...
 --     party or stats,
 --     minimap = { angle, hide } the minimap button,
 --     syncTests = results of /chron synctest, newest last,
+--     friends = friends and their synced journeys, see Friends.lua,
 --     maps  = { [uiMapID] = { name, parent, type, c, n1, w1, n2, w2 } }: every
 --             map's world rectangle in yards, top left and bottom right
 --             (north, west); c and on are nil for maps with no world position,
@@ -593,6 +594,7 @@ function ns.TestRunning()
 end
 
 ns.StartTest = StartTest
+ns.Print, ns.Guard, ns.Now, ns.Clean = Print, Guard, Now, Clean
 
 function ns.Status()
     if not me then return "Not ready yet." end
@@ -623,6 +625,10 @@ SlashCmdList.RTSCHRONICLE = function(input)
         else
             StartTest(rest)
         end
+    elseif cmd == "friend" and rest ~= "" then
+        ns.Friends:Add(rest)
+    elseif cmd == "sync" and rest ~= "" then
+        ns.Friends:Sync(rest)
     elseif cmd == "options" then
         ns.OpenSettings()
     elseif cmd == "export" then
@@ -638,6 +644,8 @@ SlashCmdList.RTSCHRONICLE = function(input)
         Print("/chron options - open the settings page")
         Print("/chron note <text> - pin a note here on the map")
         Print("/chron export - how to get your journey out of the game")
+        Print("/chron friend <name> - share with a friend and sync their journey")
+        Print("/chron sync <name> - sync a friend's journey again")
         Print("/chron synctest <name> - measure addon messages with another player")
     end
 end
