@@ -1,10 +1,10 @@
-# Road to Sixty: Chronicle
+# Road to Sixty: With Friends
 
 Extra journey tracking on top of [Road to Sixty], plus an offline viewer that
 replays the journeys of all your characters and your friends' on one map.
 
 Road to Sixty must be installed: it records the path, levels, quests, deaths,
-gear and groups. Chronicle adds where party members were, subzones, XP and gold
+gear and groups. With Friends adds where party members were, subzones, XP and gold
 over time, flights, talents, hearthstones, town visits, trades, screenshots and
 your own notes.
 
@@ -17,7 +17,7 @@ your own notes.
 - `/chron export` reminds you where the files are
 - `/chron friend <name>` shares with a friend and syncs their journey
 - `/chron sync <name>` syncs a friend's journey again
-- `/chron synctest <name>` measures addon messages with another Chronicle player
+- `/chron synctest <name>` measures addon messages with another With Friends player
 
 ## Synced friends
 

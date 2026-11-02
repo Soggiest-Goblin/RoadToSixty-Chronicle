@@ -2,13 +2,13 @@
 
 Line numbers refer to Road to Sixty 1.18.0.
 
-## Where Chronicle stands
+## Where With Friends stands
 
-Chronicle is a separate addon that requires Road to Sixty. It doesn't change Road to Sixty.
+With Friends is two addons: a fork of Road to Sixty in `RoadToSixty/`, and a separate companion in `RoadToSixty_Chronicle/` that requires it. This section is about the companion.
 
-Road to Sixty's `ns` table is private, so Chronicle can only reach two of its globals: `RoadToSixtyDB` (account) and `RoadToSixtyCharDB` (character). Because of that, Chronicle has its own event frame and records into its own saved variable, `RoadToSixtyChronicleDB`.
+Road to Sixty's `ns` table is private, so With Friends can only reach two of its globals: `RoadToSixtyDB` (account) and `RoadToSixtyCharDB` (character). Because of that, With Friends has its own event frame and records into its own saved variable, `RoadToSixtyChronicleDB`.
 
-Chronicle adds these on top of what Road to Sixty records:
+With Friends adds these on top of what Road to Sixty records:
 
 - Party members' positions
 - Subzones and town visits
@@ -27,17 +27,17 @@ Friends sync journeys in game, and everything shows on Road to Sixty's map. The 
 
 ## Settings page
 
-Road to Sixty keeps its own page. Chronicle has a separate, larger one in `Settings.lua`, which contains:
+Road to Sixty keeps its own page. With Friends has a separate, larger one in `Settings.lua`, which contains:
 
 - Which of the account's characters the map draws
 - The sync test
-- A switch for each kind of Chronicle tracking, saved in `RoadToSixtyChronicleDB.off`
+- A switch for each kind of With Friends tracking, saved in `RoadToSixtyChronicleDB.off`
 - Every Road to Sixty setting
 
 The Road to Sixty settings aren't copied. Both pages read and write the same `RoadToSixtyDB` values, so they can't disagree. There are two costs while `ns` stays private:
 
 - `ROAD_TO_SIXTY` in `Settings.lua` repeats the option list from `Options.lua`, so a new Road to Sixty option has to be added by hand.
-- Chronicle can't call `ns.Map:ApplySettings` or `ns.Map:RefreshCharacters`, so changes show the next time the map opens. The minimap button is the exception, because Chronicle can use `/rts minimap`.
+- With Friends can't call `ns.Map:ApplySettings` or `ns.Map:RefreshCharacters`, so changes show the next time the map opens. The minimap button is the exception, because With Friends can use `/rts minimap`.
 
 Exposing the option list and those two calls publicly would remove both costs.
 
@@ -61,8 +61,8 @@ Built in `Friends.lua` and `FriendsTab.lua`:
 - Adding a friend is the approval. A journey is only sent to, or taken from, a player on the list.
 - A sync is pulled. The asker says what it has, and the sender replies with the next batch of its current character's `RoadToSixtyCharDB`, so a stopped sync resumes and later syncs send only what's new. The journey isn't thinned.
 - Batches are plain text, parsed as data and checked before they're kept. A friend's data can't replace one of the account's own characters.
-- Friends' journeys are stored in Chronicle's own saved variable.
-- At login Chronicle adds them to `RoadToSixtyDB.roster`, and at logout it removes them so they never become part of Road to Sixty's own data. Login clears any a crash left behind.
+- Friends' journeys are stored in With Friends' own saved variable.
+- At login With Friends adds them to `RoadToSixtyDB.roster`, and at logout it removes them so they never become part of Road to Sixty's own data. Login clears any a crash left behind.
 
 The roster already drives the character list, path checkboxes, view switching and stats, so friends appear there with no Road to Sixty changes.
 
@@ -83,22 +83,22 @@ Jordan preferred a fork to taking replay changes upstream, so `RoadToSixty/` hol
 | Replay several characters at once, by real time or time played | `Map.lua` |
 | Everyone / My characters / per-friend filter, All and None buttons, BattleTag tags | `Panel.lua` |
 
-The fork keeps the folder and saved variable names, so journeys carry over with no migration and Chronicle's dependency is unchanged. It can't run beside Jordan's addon, and an addon manager updating Road to Sixty would overwrite it. Giving it its own name would need players' saved files moving.
+The fork keeps the folder and saved variable names, so journeys carry over with no migration and With Friends' dependency is unchanged. It can't run beside Jordan's addon, and an addon manager updating Road to Sixty would overwrite it. Giving it its own name would need players' saved files moving.
 
 The real-time clock uses each point's recorded time. The played clock adds up the time between points, except across a login (`j = "l"`), or a break of over 30 minutes with no reason in saves too old to mark logins. Standing still in game counts as played.
 
 Friends' BattleTags come from `BNGetInfo` on their client, sent with each batch, and group a friend's characters together. A friend synced before this change shows as `Synced friend` until their next sync.
 
-Still to do: Chronicle events on the map, such as notes and flights, and popups during a together replay.
+Still to do: With Friends events on the map, such as notes and flights, and popups during a together replay.
 
 ## Questions for Jordan
 
-1. **Would you rather merge these features into Road to Sixty, or keep Chronicle separate?** A small public hook on Road to Sixty's side would avoid the login and logout roster workaround.
+1. **Would you rather merge these features into Road to Sixty, or keep With Friends separate?** A small public hook on Road to Sixty's side would avoid the login and logout roster workaround.
 2. **Can Road to Sixty expose a stable API?** For example, `RoadToSixty.AddExternalCharacter(entry)`, `RemoveExternalCharacter(key)`, a way to add map events, its option list, and calls to refresh an open map.
-3. **What's the best way to change `Map.lua` and `Panel.lua`?** Chronicle shouldn't carry a patched copy that has to be redone after every release.
+3. **What's the best way to change `Map.lua` and `Panel.lua`?** With Friends shouldn't carry a patched copy that has to be redone after every release.
 4. **Is the coastline data OK to reuse?** The viewer embeds run-length masks taken from `Gaps/land_*.tga`. This has to be settled before anything goes public.
 5. **Which license should this use, and how should it be credited?** Road to Sixty has no license file, so this repo includes none of its code.
-6. **Are the saved data formats stable?** If they change between versions, is there a version field Chronicle should check?
+6. **Are the saved data formats stable?** If they change between versions, is there a version field With Friends should check?
 
 ## Testing
 

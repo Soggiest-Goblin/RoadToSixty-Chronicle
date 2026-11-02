@@ -79,7 +79,7 @@ local me = RoadToSixtyChronicleDB.chars["Player-1-ME"]
 assert(me.stats == "100,3,644,1400,366,43;300,3,967,1400,78,47;", "old logout row kept: " .. me.stats)
 
 local panel = widgets[#widgets]
-assert(panel.name == "Road to Sixty: Chronicle", "panel is not the last frame made")
+assert(panel.name == "Road to Sixty: With Friends", "panel is not the last frame made")
 panel.scripts.OnShow()
 
 local function find(label)
@@ -160,7 +160,7 @@ mini.scripts.OnClick(mini, "LeftButton")
 assert(commands[1] == "map", "left-click did not open the map")
 mini.scripts.OnClick(mini, "RightButton")
 assert(OPENED == 7, "right-click did not open the settings")
-click(find("Show the Chronicle minimap button"))
+click(find("Show the With Friends minimap button"))
 assert(RoadToSixtyChronicleDB.minimap.hide == true and not mini.shown, "minimap button not hidden")
-click(find("Show the Chronicle minimap button"))
+click(find("Show the With Friends minimap button"))
 assert(RoadToSixtyChronicleDB.minimap.hide == false and mini.shown, "minimap button not shown again")

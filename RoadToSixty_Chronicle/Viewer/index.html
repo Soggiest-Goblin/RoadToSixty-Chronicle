@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Chronicle Viewer</title>
+<title>Road to Sixty: With Friends Viewer</title>
 <style>
 :root{
   color-scheme:dark;
@@ -92,7 +92,7 @@ th:first-child,td:first-child{text-align:left}
 <body>
 <div id="app">
   <header id="top">
-    <h1>Chronicle</h1>
+    <h1>With Friends</h1>
     <button id="add">Add files…</button>
     <button id="addDir">Add folder…</button>
     <span id="status" class="grow"></span>
@@ -389,7 +389,7 @@ function rebuild(){
   renderSide();renderFollow();renderChips();renderParty();renderStats();
   fit();invalidate();drawLanes();renderFeed(true);
   $("drop").hidden=S.chars.length>0;
-  $("dropnote").textContent=!S.chars.length&&S.chron.size?"Chronicle data found, but the journey itself is in RoadToSixty.lua. Add that file too.":"";
+  $("dropnote").textContent=!S.chars.length&&S.chron.size?"With Friends data found, but the journey itself is in RoadToSixty.lua. Add that file too.":"";
   const n=new Set(S.chars.map(c=>c.account)).size;
   $("status").textContent=S.chars.length?`${S.chars.length} character${S.chars.length>1?"s":""} from ${n} account${n>1?"s":""}`:"";
 }

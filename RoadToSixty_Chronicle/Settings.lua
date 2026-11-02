@@ -1,7 +1,7 @@
 local _, ns = ...
 
 -- Settings page in the game's settings, under AddOns > Road to Sixty:
--- Chronicle, built the way Road to Sixty's own page is. Opened with
+-- With Friends, built the way Road to Sixty's own page is. Opened with
 -- /chron options.
 --
 -- The Road to Sixty sections read and write RoadToSixtyDB, the same values
@@ -9,7 +9,7 @@ local _, ns = ...
 -- nothing here can redraw an open map: changes show the next time the map
 -- opens. Keep ROAD_TO_SIXTY in step with SECTIONS in its Options.lua.
 
-local TITLE = "Road to Sixty: Chronicle"
+local TITLE = "Road to Sixty: With Friends"
 local LEFT = 16          -- panel's left margin
 local SECTION_GAP = 18   -- space above each section heading
 local ROW = 30           -- height of one checkbox row
@@ -99,7 +99,7 @@ local ROAD_TO_SIXTY = {
 }
 
 local BUTTON = {
-    label = "Show the Chronicle minimap button",
+    label = "Show the With Friends minimap button",
     tip = "Left-click it to open the journey map, right-click for this page. Drag it to move it.",
     get = function() return not ns.MinimapSettings().hide end,
     set = function(on)
@@ -279,7 +279,7 @@ end
 -- Friends are added and synced in the map's Synced friends tab.
 local function BuildFriends()
     Heading("Friends")
-    Note("Add friends in the Synced friends tab on the journey map. This test measures how fast two players can send data. Both players need Chronicle.")
+    Note("Add friends in the Synced friends tab on the journey map. This test measures how fast two players can send data. Both players need With Friends.")
     local box = CreateFrame("EditBox", nil, body, "InputBoxTemplate")
     box:SetSize(150, 22)
     box:SetPoint("TOPLEFT", LEFT + 6, y)
@@ -323,13 +323,13 @@ local function Build()
 
     local notes = body:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     notes:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    notes:SetText("Everything in Road to Sixty, plus Chronicle's extra tracking.")
+    notes:SetText("Everything in Road to Sixty, plus With Friends' extra tracking.")
 
     y = -50
     BuildCharacters()
     BuildFriends()
 
-    Heading("Chronicle tracking")
+    Heading("With Friends tracking")
     Check(BUTTON)
     for _, option in ipairs(TRACKING) do
         Check(option)

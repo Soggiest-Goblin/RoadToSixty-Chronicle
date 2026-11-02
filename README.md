@@ -1,4 +1,4 @@
-# Road to Sixty: Chronicle
+# Road to Sixty: With Friends
 
 A fork of [Road to Sixty](#road-to-sixty), plus a companion addon that records more of a character's journey. Players can sync journeys in game, then replay their own characters and their friends' together on one map. An offline viewer is included too.
 
@@ -76,5 +76,7 @@ Road to Sixty is Jordan's addon. The `RoadToSixty` folder is a fork of version 1
 The fork changes `Map.lua` and `Panel.lua`, plus the title, author and version in `RoadToSixty.toc`. Keep it that small where possible, so his later releases can be merged in.
 
 The viewer also embeds coastline shapes taken from Road to Sixty's `Gaps/land_*.tga` textures, used with Jordan's approval. No license has been chosen for this repo yet.
+
+The project was first called Chronicle, and some internal names keep that: the `RoadToSixty_Chronicle` folder, its saved variable, its addon message prefixes and the `/chron` commands. Renaming those would lose players' saved data or break sync between versions.
 
 Never commit real `WTF` or `SavedVariables` files. They contain routes, play times and the names of other players. `.gitignore` blocks the usual names and paths.

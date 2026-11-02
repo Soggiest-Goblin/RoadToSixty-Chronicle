@@ -97,7 +97,7 @@ local function Safe(fn, ...)
 end
 
 local function Print(msg)
-    print("|cff33ff99Chronicle|r: " .. msg)
+    print("|cff33ff99With Friends|r: " .. msg)
 end
 
 -- Runs a handler, reporting the first error, so tracking never gets in the
@@ -445,7 +445,7 @@ local function StartTest(arg)
     C_Timer.After(TEST_WAIT, function()
         if test and test.id == id and test.stage == 0 then
             test = nil
-            Print(("No answer from %s. They need Chronicle on, must be online, and a whisper needs the exact name (and same faction)."):format(arg))
+            Print(("No answer from %s. They need With Friends on, must be online, and a whisper needs the exact name (and same faction)."):format(arg))
         end
     end)
 end
@@ -481,7 +481,7 @@ local function OnMessage(prefix, text, channel, sender)
     elseif test and test.id == id then
         if kind == "W" and test.stage == 0 then
             test.peer = short
-            Print(("%s answered (Chronicle version %s, interface %s)."):format(short, a, b))
+            Print(("%s answered (With Friends version %s, interface %s)."):format(short, a, b))
             NextStage()
         elseif kind == "A" and tonumber(a) == test.stage then
             local received, ms = text:match("^A:%x+:%d+:(%d+):(%d+)$")
@@ -621,7 +621,7 @@ SlashCmdList.RTSCHRONICLE = function(input)
         if test then
             Print("A test is already running.")
         elseif rest == "" then
-            Print("/chron synctest <name>, or party or guild. They need Chronicle too.")
+            Print("/chron synctest <name>, or party or guild. They need With Friends too.")
         else
             StartTest(rest)
         end

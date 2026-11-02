@@ -28,9 +28,9 @@ end
 
 local function ShowTooltip(owner)
     GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Road to Sixty: Chronicle")
+    GameTooltip:AddLine("Road to Sixty: With Friends")
     GameTooltip:AddLine("Left-click: open the journey map", 1, 1, 1)
-    GameTooltip:AddLine("Right-click: Chronicle settings", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: With Friends settings", 1, 1, 1)
     GameTooltip:AddLine("Drag: move this button", 0.7, 0.7, 0.7)
     GameTooltip:Show()
 end

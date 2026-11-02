@@ -1,6 +1,6 @@
 ## Interface: 16001, 11509, 20506
-## Title: Road to Sixty: Chronicle
-## Notes: Extra journey tracking on top of Road to Sixty, for the Chronicle Viewer
+## Title: Road to Sixty: With Friends (Tracking)
+## Notes: Extra journey tracking on top of Road to Sixty, syncing and the With Friends viewer
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## Version: 1.2.0
 ## RequiredDeps: RoadToSixty

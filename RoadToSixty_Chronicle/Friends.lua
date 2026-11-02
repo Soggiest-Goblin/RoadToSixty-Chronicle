@@ -306,7 +306,7 @@ local function Watch(asked)
         local limit = asked.answered and STALLED or NO_ANSWER
         if GetTime() - asked.heard < limit then return Watch(asked) end
         Finish(asked.key, asked.answered and "Stopped. Sync again to carry on."
-            or "No answer. They need this version of Chronicle and must be online.")
+            or "No answer. They need this version of With Friends and must be online.")
     end)
 end
 
