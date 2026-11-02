@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Road to Sixty: With Friends Viewer</title>
+<title>Road to Sixty: Together Viewer</title>
 <style>
 :root{
   color-scheme:dark;
@@ -92,7 +92,7 @@ th:first-child,td:first-child{text-align:left}
 <body>
 <div id="app">
   <header id="top">
-    <h1>With Friends</h1>
+    <h1>Together</h1>
     <button id="add">Add files…</button>
     <button id="addDir">Add folder…</button>
     <span id="status" class="grow"></span>
@@ -129,7 +129,7 @@ th:first-child,td:first-child{text-align:left}
     <ol>
       <li>In game, type <code>/reload</code> or log out. That is when WoW writes saved data to disk.</li>
       <li>Drag in your whole <code>WTF</code> folder, found at <code>World of Warcraft\_forever_\WTF</code> (or <code>_classic_era_\WTF</code>, <code>_anniversary_\WTF</code>).</li>
-      <li>From a friend: they send <code>RoadToSixty.lua</code> and <code>RoadToSixty_Chronicle.lua</code> from <code>WTF\Account\&lt;account&gt;\SavedVariables</code>. Drop those in too, as many friends as you like.</li>
+      <li>From a friend: they send <code>RoadToSixtyTogether.lua</code> and <code>RoadToSixty_Chronicle.lua</code> from <code>WTF\Account\&lt;account&gt;\SavedVariables</code>. Drop those in too, as many friends as you like.</li>
     </ol>
     <p id="dropnote" style="color:var(--accent)"></p>
     <p class="note">Everything stays on this PC. Files are read as data, nothing in them is run.</p>
@@ -389,7 +389,7 @@ function rebuild(){
   renderSide();renderFollow();renderChips();renderParty();renderStats();
   fit();invalidate();drawLanes();renderFeed(true);
   $("drop").hidden=S.chars.length>0;
-  $("dropnote").textContent=!S.chars.length&&S.chron.size?"With Friends data found, but the journey itself is in RoadToSixty.lua. Add that file too.":"";
+  $("dropnote").textContent=!S.chars.length&&S.chron.size?"Together data found, but the journey itself is in RoadToSixtyTogether.lua. Add that file too.":"";
   const n=new Set(S.chars.map(c=>c.account)).size;
   $("status").textContent=S.chars.length?`${S.chars.length} character${S.chars.length>1?"s":""} from ${n} account${n>1?"s":""}`:"";
 }

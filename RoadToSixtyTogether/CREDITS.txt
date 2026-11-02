@@ -1,0 +1,10 @@
+Road to Sixty: Together
+
+Based on the efforts of Hotdoghands, the author of Road to Sixty.
+
+This is a fork of Road to Sixty 1.18.0, made with Hotdoghands' approval. The
+journey recording, map, replay, art and most of this addon are his work.
+Find him on CurseForge as Hotdoghands.
+
+Together adds syncing with friends and replaying journeys together, by
+Soggiest_Goblin.

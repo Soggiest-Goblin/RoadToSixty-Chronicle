@@ -4,7 +4,7 @@ local addonName, ns = ...
 -- keeps the path, levels, quests, deaths, gear and groups; this adds where
 -- party members were, subzones, XP and gold over time, flights and more.
 -- Its own data lives in one account-wide file, so sharing a journey is two
--- files: SavedVariables/RoadToSixty.lua and RoadToSixty_Chronicle.lua.
+-- files: SavedVariables/RoadToSixtyTogether.lua and RoadToSixty_Chronicle.lua.
 --
 -- Road to Sixty's namespace is private to it, so nothing here calls into it.
 -- Settings.lua is the settings page; ns carries what it needs from this file.
@@ -97,7 +97,7 @@ local function Safe(fn, ...)
 end
 
 local function Print(msg)
-    print("|cff33ff99With Friends|r: " .. msg)
+    print("|cff33ff99Together|r: " .. msg)
 end
 
 -- Runs a handler, reporting the first error, so tracking never gets in the
@@ -445,7 +445,7 @@ local function StartTest(arg)
     C_Timer.After(TEST_WAIT, function()
         if test and test.id == id and test.stage == 0 then
             test = nil
-            Print(("No answer from %s. They need With Friends on, must be online, and a whisper needs the exact name (and same faction)."):format(arg))
+            Print(("No answer from %s. They need Road to Sixty: Together on, must be online, and a whisper needs the exact name (and same faction)."):format(arg))
         end
     end)
 end
@@ -481,7 +481,7 @@ local function OnMessage(prefix, text, channel, sender)
     elseif test and test.id == id then
         if kind == "W" and test.stage == 0 then
             test.peer = short
-            Print(("%s answered (With Friends version %s, interface %s)."):format(short, a, b))
+            Print(("%s answered (Road to Sixty: Together version %s, interface %s)."):format(short, a, b))
             NextStage()
         elseif kind == "A" and tonumber(a) == test.stage then
             local received, ms = text:match("^A:%x+:%d+:(%d+):(%d+)$")
@@ -527,6 +527,10 @@ function handlers.Login()
     me.class = select(2, UnitClass("player"))
     me.faction = UnitFactionGroup("player")
     me.sex = UnitSex("player")
+    local loaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or IsAddOnLoaded
+    if loaded and Safe(loaded, "RoadToSixty") then
+        Print("|cffff4040Road to Sixty is on as well. Turn it off in the AddOns list, as the two can't run together.|r")
+    end
     me.stats = me.stats:gsub("%d+,%d+,0,0,0,0;", "")    -- rows 1.0.0 saved while logging out
     ready = true
 
@@ -621,7 +625,7 @@ SlashCmdList.RTSCHRONICLE = function(input)
         if test then
             Print("A test is already running.")
         elseif rest == "" then
-            Print("/chron synctest <name>, or party or guild. They need With Friends too.")
+            Print("/chron synctest <name>, or party or guild. They need Road to Sixty: Together too.")
         else
             StartTest(rest)
         end
@@ -629,12 +633,18 @@ SlashCmdList.RTSCHRONICLE = function(input)
         ns.Friends:Add(rest)
     elseif cmd == "sync" and rest ~= "" then
         ns.Friends:Sync(rest)
+    elseif cmd == "autosync" then
+        if ns.Friends:ParseAutoSync(rest:lower()) then
+            Print("Automatic sync: " .. (rest:lower() == "off" and "off" or "every " .. rest .. " minutes") .. ".")
+        else
+            Print("/chron autosync <5, 15, 30 or off>")
+        end
     elseif cmd == "options" then
         ns.OpenSettings()
     elseif cmd == "export" then
         Pack()
         Print("The game writes saved data at logout or /reload. After that, send or drag in these two files from WTF\\Account\\<account>\\SavedVariables:")
-        Print("  RoadToSixty.lua and RoadToSixty_Chronicle.lua")
+        Print("  RoadToSixtyTogether.lua and RoadToSixty_Chronicle.lua")
     else
         Pack()
         local people = 0
@@ -646,6 +656,7 @@ SlashCmdList.RTSCHRONICLE = function(input)
         Print("/chron export - how to get your journey out of the game")
         Print("/chron friend <name> - share with a friend and sync their journey")
         Print("/chron sync <name> - sync a friend's journey again")
+        Print("/chron autosync <5, 15, 30 or off> - sync with online friends every so many minutes")
         Print("/chron synctest <name> - measure addon messages with another player")
     end
 end

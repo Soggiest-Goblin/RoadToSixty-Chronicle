@@ -56,6 +56,9 @@ local function Client(name, other, guid)
   env.UnitLevel = function() return 12 end
   env.GetRealmName = function() return "Era" end
   env.BNGetInfo = function() return 1, name .. "#1234" end
+  env.wipe = function(t) for k in pairs(t) do t[k] = nil end return t end
+  env.ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing."
+  env.ChatFrame_AddMessageEventFilter = function(_, fn) env.SystemFilter = fn end
   env.Ambiguate = function(n) return (n:gsub("%-.*", "")) end
   env.CreateFrame = function(kind, _, parent)
     local w = Widget(kind, parent, c)
@@ -228,6 +231,61 @@ z.event("CHAT_MSG_ADDON", "RTSChronFriends", "B:" .. b.lastAsked .. ":1:1:n1~", 
 assert(status(rec) == "Asking...", "took a batch from a stranger")
 b.mute = false
 Run()
+-- Automatic sync: friends are asked in turn, an offline one is passed over
+-- without a chat line, and turning it off stops the timer.
+Run()
+local friends = z.env.RoadToSixtyChronicleDB.friends
+friends.gone = { name = "Gone", realm = "Era" }
+status(rec)
+sent = b.env.RoadToSixtyCharDB
+sent.events[#sent.events + 1] = { 1786000000, "level", 0, 2, 2 }
+local total, wasSynced = #sent.events, rec.synced
+assert(not F:ParseAutoSync("7") and F:AutoSync() == 0, "took a choice that isn't one")
+assert(F:ParseAutoSync("5") and F:AutoSync() == 5, "choice not taken")
+local line = z.env.ERR_CHAT_PLAYER_NOT_FOUND_S:format("Gone")
+local hidden = {}
+local Filter = z.env.SystemFilter
+assert(Filter, "no chat filter")
+local real = z.env.C_ChatInfo.SendAddonMessage
+z.env.C_ChatInfo.SendAddonMessage = function(prefix, text, channel, target)
+  if target == "Gone" then
+    At(0.05, function()
+      hidden[#hidden + 1] = Filter(nil, "CHAT_MSG_SYSTEM", line)
+      hidden[#hidden + 1] = Filter(nil, "CHAT_MSG_SYSTEM", line)    -- a second chat window
+    end)
+    return true
+  end
+  return real(prefix, text, channel, target)
+end
+At(330, function() assert(F:ParseAutoSync("off") and F:AutoSync() == 0, "not turned off") end)
+Run()
+z.env.C_ChatInfo.SendAddonMessage = real
+assert(#rec.journey.events == total and rec.synced > wasSynced, "automatic sync did not fetch new data")
+assert(#hidden == 2 and hidden[1] == true and hidden[2] == true, "offline line not hidden")
+assert(status(friends.gone) == "Not synced yet.", "offline friend reported: " .. status(friends.gone))
+assert(Filter(nil, "CHAT_MSG_SYSTEM", "Someone has come online.") == false, "hid another line")
+friends.gone = nil
+
+-- A friend going offline stops a send, without filling the chat.
+local Bfilter = b.env.SystemFilter
+b.env.RoadToSixtyCharDB = Journey(9000, 300)
+b.env.RoadToSixtyCharDB.journeyId = "Player-1-FFFF:10"
+local sends, realSend = 0, b.env.C_ChatInfo.SendAddonMessage
+b.env.C_ChatInfo.SendAddonMessage = function(...) sends = sends + 1 return realSend(...) end
+F:Sync("Bromm")
+At(5, function()
+  z.offline = true
+  assert(Bfilter(nil, "CHAT_MSG_SYSTEM", b.env.ERR_CHAT_PLAYER_NOT_FOUND_S:format("Zed-Era")) == true, "send line not hidden")
+end)
+local at5
+At(5.5, function() at5 = sends end)
+Run()
+z.offline = false
+b.env.C_ChatInfo.SendAddonMessage = realSend
+assert(sends == at5, "kept sending to someone offline")
+F:Sync("Bromm")
+Run()
+
 -- The tab, on a stand-in of Road to Sixty's panel.
 local window = Widget("Frame", nil, z)
 local panel = Widget("Frame", window, z)

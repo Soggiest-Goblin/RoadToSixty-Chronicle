@@ -37,7 +37,7 @@ local TOGETHER_SPEEDS = {
 local TOGETHER_GAP = 600
 -- Replaying together's two clocks, in the order the button goes through them.
 local TOGETHER_NEXT = { real = "game" }
-local TOGETHER_LABELS = { real = "Together: Real", game = "Together: Played" }
+local TOGETHER_LABELS = { real = "Real Time", game = "Play Time" }
 -- Saves up to 1.5.0 mark no logins: a break this long with no reason counts as one.
 local OFFLINE_GAP = 1800
 local MAX_ZOOM = 64
@@ -2546,7 +2546,7 @@ end
 -- Leaves replaying together. The caller redraws the characters.
 local function EndTogether()
     state.togetherMode, state.clock, state.clockTo = nil, nil, nil
-    togetherButton:SetText("Together")
+    togetherButton:SetText("Solo")
     SetSpeedText()
 end
 
@@ -3048,7 +3048,7 @@ local function CreateWindow()
     end)
     speedButton:SetPoint("LEFT", playButton, "RIGHT", 4, 0)
 
-    togetherButton = CreateButton(120, "Together", function(self)
+    togetherButton = CreateButton(120, "Solo", function(self)
         local mode
         if state.togetherMode then
             mode = TOGETHER_NEXT[state.togetherMode]
@@ -3080,10 +3080,10 @@ local function CreateWindow()
     togetherButton:SetPoint("TOPRIGHT", -8, -8)
     togetherButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("Replay together")
-        GameTooltip:AddLine("Plays every path turned on at once. Tick characters in the Characters tab.", 1, 1, 1, true)
-        GameTooltip:AddLine("Real: by the real time it happened, so a character that logged off waits on the map.", 1, 1, 1, true)
-        GameTooltip:AddLine("Played: by time played, as if everyone played nonstop from the same moment.", 1, 1, 1, true)
+        GameTooltip:AddLine("Replay mode")
+        GameTooltip:AddLine("Solo: the normal replay of one journey. Click to play every ticked character at once.", 1, 1, 1, true)
+        GameTooltip:AddLine("Real Time: by the real time it happened, so a character that logged off waits on the map.", 1, 1, 1, true)
+        GameTooltip:AddLine("Play Time: by time played, as if everyone played nonstop from the same moment.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     togetherButton:SetScript("OnLeave", GameTooltip_Hide)

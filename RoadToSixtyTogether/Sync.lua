@@ -3,7 +3,7 @@ local _, ns = ...
 -- Brings in the journey the Road to Sixty app left in the sync folder
 -- (#1): merged into what this PC has, or, for a restore picked in the
 -- app, put in its place. The app owns Interface/AddOns/RoadToSixty_Sync,
--- which RoadToSixty.toc lists under OptionalDeps so it loads first. Its
+-- which RoadToSixtyTogether.toc lists under OptionalDeps so it loads first. Its
 -- data.lua sets one global:
 --
 --   RoadToSixtySync = {

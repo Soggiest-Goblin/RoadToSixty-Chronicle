@@ -19,7 +19,7 @@ local TAB_WIDTH = 120
 local TIP = "Add a friend and have them add you. Your current character's journey is shared with friends you add, including who you grouped with."
 
 local mapPanel                  -- Road to Sixty's side panel
-local pane, list, empty
+local pane, list, empty, autoButton
 local tab, otherTabs, otherPanes
 local rows = {}
 
@@ -147,6 +147,8 @@ local function Refresh()
     if not pane then return end
     local friends = ns.Friends:List()
     local busy = ns.Friends:Busy()
+    local minutes = ns.Friends:AutoSync()
+    autoButton:SetText(minutes == 0 and "Auto-sync: Off" or ("Auto-sync: %d min"):format(minutes))
     for i, rec in ipairs(friends) do
         local row = rows[i]
         if not row then
@@ -202,11 +204,23 @@ local function CreatePane(parent)
     end)
     add:SetScript("OnLeave", GameTooltip_Hide)
 
+    autoButton = CreateFrame("Button", nil, pane, "UIPanelButtonTemplate")
+    autoButton:SetSize(150, 22)
+    autoButton:SetPoint("TOPLEFT", 2, -28)
+    autoButton:SetScript("OnClick", function() ns.Friends:NextAutoSync() end)
+    autoButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:AddLine("Automatic sync")
+        GameTooltip:AddLine("Syncs with every friend who is online, on a timer, while you play. Click for the next choice.", 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+    autoButton:SetScript("OnLeave", GameTooltip_Hide)
+
     local ok, scroll = pcall(CreateFrame, "ScrollFrame", nil, pane, "ScrollFrameTemplate")
     if not ok then
         scroll = CreateFrame("ScrollFrame", nil, pane, "UIPanelScrollFrameTemplate")
     end
-    scroll:SetPoint("TOPLEFT", 0, -32)
+    scroll:SetPoint("TOPLEFT", 0, -56)
     scroll:SetPoint("BOTTOMRIGHT", -24, 0)
     list = CreateFrame("Frame", nil, scroll)
     list:SetSize(pane:GetWidth() - 24, 1)
@@ -214,7 +228,7 @@ local function CreatePane(parent)
     scroll:SetScript("OnSizeChanged", function(_, width) list:SetWidth(width) end)
 
     empty = pane:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    empty:SetPoint("TOPLEFT", 8, -40)
+    empty:SetPoint("TOPLEFT", 8, -64)
     empty:SetPoint("RIGHT", -8, 0)
     empty:SetJustifyH("LEFT")
     empty:SetJustifyV("TOP")

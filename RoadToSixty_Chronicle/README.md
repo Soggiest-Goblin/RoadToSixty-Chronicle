@@ -1,10 +1,10 @@
-# Road to Sixty: With Friends
+# Road to Sixty: Together
 
-Extra journey tracking on top of [Road to Sixty], plus an offline viewer that
+Based on the efforts of Hotdoghands' Road to Sixty. Extra journey tracking on top of it, plus an offline viewer that
 replays the journeys of all your characters and your friends' on one map.
 
-Road to Sixty must be installed: it records the path, levels, quests, deaths,
-gear and groups. With Friends adds where party members were, subzones, XP and gold
+The `RoadToSixtyTogether` addon must be installed: it records the path, levels, quests, deaths,
+gear and groups. Together adds where party members were, subzones, XP and gold
 over time, flights, talents, hearthstones, town visits, trades, screenshots and
 your own notes.
 
@@ -12,12 +12,13 @@ your own notes.
 
 - `/chron` shows what has been recorded so far
 - `/chron options` opens the settings page, also found under AddOns in the game's settings
-- The book button on the minimap opens the journey map with a left-click and the settings page with a right-click
+- The campfire button on the minimap opens the journey map with a left-click and the settings page with a right-click
 - `/chron note Finally got my mount!` pins a note to this spot on the map
 - `/chron export` reminds you where the files are
 - `/chron friend <name>` shares with a friend and syncs their journey
 - `/chron sync <name>` syncs a friend's journey again
-- `/chron synctest <name>` measures addon messages with another With Friends player
+- `/chron autosync <5, 15, 30 or off>` syncs with every online friend on a timer
+- `/chron synctest <name>` measures addon messages with another Road to Sixty: Together player
 
 ## Synced friends
 
@@ -25,9 +26,11 @@ Open the journey map and choose the Synced friends tab. Type a friend's exact ch
 
 Choose Sync to fetch the journey of the character they're playing. Each of their characters is added separately. A first sync sends about 40 KB a minute, and it carries on from where it stopped if either of you logs off. Later syncs only send what's new.
 
+The Auto-sync button in that tab, or the settings page, syncs with every friend who is online every 5, 15 or 30 minutes while you play. It's off until you choose it, and it only sends and fetches between people who have added each other.
+
 Click a friend to replay their journey and see their History, or tick the box to draw their path beside yours. They also appear in the Characters tab the next time the map opens.
 
-In the Characters tab, friends' characters are tagged with their BattleTag, and the filter button shows everyone, just yours, or one friend's characters. Tick the characters to play, then use Together at the top right of the map. Real plays by the real date and time, so a character that logged off waits on the map until it returns. A second click switches to Played, which starts everyone together and plays only their time in game. These need this repo's `RoadToSixty` fork.
+In the Characters tab, friends' characters are tagged with their BattleTag, and the filter button shows everyone, just yours, or one friend's characters. Tick the characters to play, then click the button at the top right of the map, which starts on Solo. Real Time plays by the real date and time, so a character that logged off waits on the map until it returns. A second click switches to Play Time, which starts everyone together and plays only their time in game. These need this repo's `RoadToSixty` fork.
 
 Adding someone shares your current character's journey and your BattleTag with them, including play times and the names of people you've grouped with. Remove stops sharing with them and deletes their journey from your game. Your `RoadToSixty_Chronicle.lua` file holds your friends' synced journeys, so sending it to someone else shares those too.
 
@@ -44,7 +47,7 @@ Works on Forever, Classic Era and the Anniversary realms, wherever Road to Sixty
 Your friend installs Road to Sixty and this folder, plays, then sends you these
 two files from `WTF\Account\<account>\SavedVariables`:
 
-- `RoadToSixty.lua`
+- `RoadToSixtyTogether.lua`
 - `RoadToSixty_Chronicle.lua`
 
 Put each friend's pair in a folder of its own and drag that in, or drop the files

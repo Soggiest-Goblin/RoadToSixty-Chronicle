@@ -17,8 +17,8 @@ $settings = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadTo
 $minimap = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\MinimapButton.lua"))
 $friends = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\Friends.lua"))
 $friendsTab = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty_Chronicle\FriendsTab.lua"))
-$map = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty\Map.lua"))
-$mapPanel = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixty\Panel.lua"))
+$map = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixtyTogether\Map.lua"))
+$mapPanel = [IO.File]::ReadAllText((Join-Path (Split-Path $PSScriptRoot) "RoadToSixtyTogether\Panel.lua"))
 $failed = 0
 foreach ($test in "mock_client", "two_clients", "settings", "friends", "together") {
     $lua = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "$test.lua"))

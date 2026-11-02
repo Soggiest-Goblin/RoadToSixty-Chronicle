@@ -16,6 +16,10 @@ local _, ns = ...
 --     journey = in the form of RoadToSixtyCharDB,
 --     key = guid, chronicleFriend = true,
 --   }
+--   RoadToSixtyChronicleDB.autoSync = minutes between automatic syncs; nil or 0 is off
+--
+-- An automatic sync simply asks each friend in turn. The game answers with a
+-- chat line when one is offline, which is hidden and taken as a no.
 --
 -- That is the form of a Road to Sixty roster entry, which is what puts a
 -- friend in its character list, on its map and in its replay. Entries join
@@ -42,6 +46,9 @@ local EVENTS_AGAIN = 20         -- latest events sent again, as open ones are fi
 local MAX_PARTS = 4500          -- the most a batch may be, about 25 minutes
 local MAX_DEPTH = 16
 local MAX_FAILS = 30            -- refused sends in a row before giving up
+local AUTO_MINUTES = { 0, 5, 15, 30 }   -- the choices for automatic syncing; 0 is off
+local AUTO_GAP = 2              -- seconds between friends in an automatic sync
+local HIDE_FOR = 2              -- seconds an offline line stays hidden, for each chat window
 local NO_ANSWER = 15            -- seconds to wait for a first answer
 local STALLED = 45              -- seconds without a message before a sync counts as stopped
 
@@ -62,6 +69,10 @@ local request                   -- the sync this client is asking for
 local outgoing                  -- the batch this client is sending
 local status = {}               -- key -> text for the tab
 local serial = 0
+local autoQueue = {}            -- keys of friends waiting for an automatic sync
+local autoRun = 0               -- which schedule is current, as a timer can't be stopped
+local hiddenText, hiddenUntil   -- the offline line being kept out of chat
+local NextAuto
 
 local function Changed()
     if Friends.OnChange then Friends.OnChange() end
@@ -293,10 +304,15 @@ end
 
 -- Asking ----------------------------------------------------------------------------
 
-local function Finish(key, text)
+-- Ends a sync. An automatic one only reports what needs looking at, with
+-- keep: a friend being offline is not worth a line.
+local function Finish(key, text, keep)
+    local auto = request and request.key == key and request.auto
     if request and request.key == key then request = nil end
+    if auto and not keep then text = nil end
     status[key] = text
     Changed()
+    if autoQueue[1] then Later(AUTO_GAP, NextAuto) end
 end
 
 -- Gives up when nothing has come for a while.
@@ -306,16 +322,17 @@ local function Watch(asked)
         local limit = asked.answered and STALLED or NO_ANSWER
         if GetTime() - asked.heard < limit then return Watch(asked) end
         Finish(asked.key, asked.answered and "Stopped. Sync again to carry on."
-            or "No answer. They need this version of With Friends and must be online.")
+            or "No answer. They need this version of Road to Sixty: Together and must be online.")
     end)
 end
 
-local function Ask(rec, key, bytes)
+local function Ask(rec, key, bytes, auto)
     serial = serial + 1
     local journey, id = rec.journey, ("%x"):format((ns.Now() * 16 + serial % 16) % 0xffffff)
     local segments = journey and #journey.segments or 0
     local last = journey and journey.segments[segments]
-    local asked = { id = id, key = key, parts = {}, got = 0, bytes = bytes or 0, heard = GetTime(), answered = bytes ~= nil }
+    local asked = { id = id, key = key, parts = {}, got = 0, bytes = bytes or 0, heard = GetTime(),
+        answered = bytes ~= nil, auto = auto }
     request = asked
     status[key] = "Asking..."
     if not Send(("Q:%s:%d:%d:%d:%d:%s"):format(id, VERSION, segments, last and #last.d or 0,
@@ -325,6 +342,15 @@ local function Ask(rec, key, bytes)
     end
     Changed()
     Watch(asked)
+end
+
+-- Starts the next friend waiting for an automatic sync.
+function NextAuto()
+    while autoQueue[1] and not request do
+        local key = table.remove(autoQueue, 1)
+        local rec = db.friends[key]
+        if rec then Ask(rec, key, nil, true) end
+    end
 end
 
 local function OnPart(key, id, n, total, data)
@@ -346,12 +372,12 @@ local function OnPart(key, id, n, total, data)
     local rec = db.friends[key]
     local batch = rec and Parse(table.concat(asked.parts, "", 1, total))
     if not rec or not Apply(rec, batch) then
-        Finish(key, "Their data did not fit. Removing and adding them starts afresh.")
+        Finish(key, "Their data did not fit. Removing and adding them starts afresh.", true)
     elseif batch.done then
         rec.synced = ns.Now()
         Finish(key, nil)
     else
-        Ask(rec, key, asked.bytes)
+        Ask(rec, key, asked.bytes, asked.auto)
     end
 end
 
@@ -554,6 +580,83 @@ function Friends:Remove(name)
     if outgoing and Key(Ambiguate and Ambiguate(outgoing.to, "none") or outgoing.to) == key then outgoing = nil end
     db.friends[key], status[key] = nil, nil
     Changed()
+    NextAuto()
+end
+
+-- Automatic syncing -----------------------------------------------------------------
+
+function Friends:AutoSync()
+    return db and db.autoSync or 0
+end
+
+local function Schedule()
+    autoRun = autoRun + 1
+    local run, minutes = autoRun, db.autoSync or 0
+    if minutes == 0 then
+        wipe(autoQueue)
+        return
+    end
+    Later(minutes * 60, function()
+        if run ~= autoRun then return end
+        -- A round still going carries on rather than starting over.
+        if not autoQueue[1] then
+            for key in pairs(db.friends) do autoQueue[#autoQueue + 1] = key end
+            NextAuto()
+        end
+        Schedule()
+    end)
+end
+
+function Friends:SetAutoSync(minutes)
+    db.autoSync = minutes
+    Schedule()
+    Changed()
+end
+
+-- Moves on to the next choice, for a button.
+function Friends:NextAutoSync()
+    for i, minutes in ipairs(AUTO_MINUTES) do
+        if minutes == self:AutoSync() then
+            return self:SetAutoSync(AUTO_MINUTES[i % #AUTO_MINUTES + 1])
+        end
+    end
+    self:SetAutoSync(0)
+end
+
+-- Sets it from what was typed. False if that isn't a choice.
+function Friends:ParseAutoSync(text)
+    local minutes = text == "off" and 0 or tonumber(text)
+    for _, choice in ipairs(AUTO_MINUTES) do
+        if choice == minutes then
+            self:SetAutoSync(minutes)
+            return true
+        end
+    end
+    return false
+end
+
+-- Chat filter: true for the game's line that a player is offline, when it
+-- answers one of ours. An automatic sync moves on, and a send stops.
+local function HideOffline(_, _, message)
+    message = ns.Clean(message)
+    local line = ERR_CHAT_PLAYER_NOT_FOUND_S
+    if type(message) ~= "string" or not line then return false end
+    local now = GetTime()
+    if message == hiddenText and now < hiddenUntil then return true end
+    local rec = request and request.auto and db.friends[request.key]
+    local function Hide()
+        hiddenText, hiddenUntil = message, now + HIDE_FOR
+        return true
+    end
+    if rec and message == line:format(rec.name) then
+        Finish(request.key, nil)
+        return Hide()
+    end
+    if outgoing and message == line:format(outgoing.to) then
+        outgoing = nil
+        return Hide()
+    end
+    return false
 end
 
 local frame = CreateFrame("Frame")
@@ -569,6 +672,10 @@ frame:SetScript("OnEvent", function(_, event, ...)
         -- Runs after Road to Sixty's login, which tidies the journeys it finds.
         ns.Guard(LeaveRoster)
         for _, rec in pairs(db.friends) do ns.Guard(Join, rec) end
+        local filter = ChatFrame_AddMessageEventFilter
+            or (ChatFrameUtil and ChatFrameUtil.AddMessageEventFilter)
+        if filter then filter("CHAT_MSG_SYSTEM", HideOffline) end
+        Schedule()
     elseif event == "PLAYER_LOGOUT" then
         ns.Guard(LeaveRoster)
     elseif db then

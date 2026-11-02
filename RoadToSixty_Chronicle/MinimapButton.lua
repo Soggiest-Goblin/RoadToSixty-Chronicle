@@ -7,7 +7,7 @@ local _, ns = ...
 local MinimapButton = {}
 ns.MinimapButton = MinimapButton
 
-local ICON = "Interface\\Icons\\INV_Misc_Book_09"
+local ICON = "Interface\\AddOns\\RoadToSixtyTogether\\icon"
 local button
 
 local function Place()
@@ -28,9 +28,9 @@ end
 
 local function ShowTooltip(owner)
     GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
-    GameTooltip:AddLine("Road to Sixty: With Friends")
+    GameTooltip:AddLine("Road to Sixty: Together")
     GameTooltip:AddLine("Left-click: open the journey map", 1, 1, 1)
-    GameTooltip:AddLine("Right-click: With Friends settings", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: Together settings", 1, 1, 1)
     GameTooltip:AddLine("Drag: move this button", 0.7, 0.7, 0.7)
     GameTooltip:Show()
 end
@@ -44,22 +44,11 @@ local function Create()
     button:RegisterForDrag("LeftButton")
     button:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
 
-    local background = button:CreateTexture(nil, "BACKGROUND")
-    background:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
-    background:SetSize(20, 20)
-    background:SetPoint("TOPLEFT", 7, -5)
-
+    -- The art has a round frame of its own, so it needs no tracking border.
     local icon = button:CreateTexture(nil, "ARTWORK")
     icon:SetTexture(ICON)
-    icon:SetSize(18, 18)
-    icon:SetPoint("TOPLEFT", 7, -6)
-    -- Cut the icon's own square border so it sits inside the round frame.
-    icon:SetTexCoord(0.06, 0.94, 0.06, 0.94)
-
-    local border = button:CreateTexture(nil, "OVERLAY")
-    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    border:SetSize(53, 53)
-    border:SetPoint("TOPLEFT")
+    icon:SetSize(31, 31)
+    icon:SetPoint("TOPLEFT")
 
     button:SetScript("OnClick", function(_, mouseButton)
         if mouseButton == "RightButton" then
@@ -71,15 +60,15 @@ local function Create()
     button:SetScript("OnEnter", ShowTooltip)
     button:SetScript("OnLeave", GameTooltip_Hide)
     -- Nudge the icon while pressed, like Blizzard's buttons.
-    button:SetScript("OnMouseDown", function() icon:SetPoint("TOPLEFT", 8, -7) end)
-    button:SetScript("OnMouseUp", function() icon:SetPoint("TOPLEFT", 7, -6) end)
+    button:SetScript("OnMouseDown", function() icon:SetPoint("TOPLEFT", 1, -1) end)
+    button:SetScript("OnMouseUp", function() icon:SetPoint("TOPLEFT") end)
     button:SetScript("OnDragStart", function(self)
         self:SetScript("OnUpdate", FollowCursor)
         GameTooltip_Hide()
     end)
     button:SetScript("OnDragStop", function(self)
         self:SetScript("OnUpdate", nil)
-        icon:SetPoint("TOPLEFT", 7, -6)
+        icon:SetPoint("TOPLEFT")
     end)
 
     Place()

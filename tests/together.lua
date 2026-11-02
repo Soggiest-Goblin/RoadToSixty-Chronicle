@@ -93,11 +93,11 @@ pg = Played({ n = 3, pt = { 0, 100, 5000 }, pj = {}, brk = { true, false, false 
 assert(pg[3] == 5000, "standing still is still playing")
 
 End()
-assert(s.clock == nil and s.togetherMode == nil and T.togetherButton.text == "Together" and T.speedButton.text == "1x", "end")
+assert(s.clock == nil and s.togetherMode == nil and T.togetherButton.text == "Solo" and T.speedButton.text == "1x", "end")
 
 -- The Characters tab's filter.
 local ns = {}
-assert(load(PANEL_SRC, "Panel.lua"))("RoadToSixty", ns)
+assert(load(PANEL_SRC, "Panel.lua"))("RoadToSixtyTogether", ns)
 local entries = {
   { name = "Zed" }, { name = "Alt" },
   { name = "Bromm", chronicleFriend = true, battleTag = "Bromm#1234" },

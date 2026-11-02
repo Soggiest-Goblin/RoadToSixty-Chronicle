@@ -1,7 +1,7 @@
 local _, ns = ...
 
 -- Settings page in the game's settings, under AddOns > Road to Sixty:
--- With Friends, built the way Road to Sixty's own page is. Opened with
+-- Together, built the way Road to Sixty's own page is. Opened with
 -- /chron options.
 --
 -- The Road to Sixty sections read and write RoadToSixtyDB, the same values
@@ -9,7 +9,7 @@ local _, ns = ...
 -- nothing here can redraw an open map: changes show the next time the map
 -- opens. Keep ROAD_TO_SIXTY in step with SECTIONS in its Options.lua.
 
-local TITLE = "Road to Sixty: With Friends"
+local TITLE = "Road to Sixty: Together"
 local LEFT = 16          -- panel's left margin
 local SECTION_GAP = 18   -- space above each section heading
 local ROW = 30           -- height of one checkbox row
@@ -99,13 +99,25 @@ local ROAD_TO_SIXTY = {
 }
 
 local BUTTON = {
-    label = "Show the With Friends minimap button",
+    label = "Show the Together minimap button",
     tip = "Left-click it to open the journey map, right-click for this page. Drag it to move it.",
     get = function() return not ns.MinimapSettings().hide end,
     set = function(on)
         ns.MinimapSettings().hide = not on
         ns.MinimapButton:Refresh()
     end,
+}
+
+local AUTO_SYNC = {
+    label = "Sync with online friends",
+    choices = {
+        { 0, "Off", "Only sync when you choose Sync." },
+        { 5, "Every 5 minutes", "Syncs with every friend who is online, while you play." },
+        { 15, "Every 15 minutes", "Syncs with every friend who is online, while you play." },
+        { 30, "Every 30 minutes", "Syncs with every friend who is online, while you play." },
+    },
+    get = function() return ns.Friends and ns.Friends:AutoSync() end,
+    set = function(minutes) ns.Friends:SetAutoSync(minutes) end,
 }
 
 local TRACKING = {
@@ -279,7 +291,7 @@ end
 -- Friends are added and synced in the map's Synced friends tab.
 local function BuildFriends()
     Heading("Friends")
-    Note("Add friends in the Synced friends tab on the journey map. This test measures how fast two players can send data. Both players need With Friends.")
+    Note("Add friends in the Synced friends tab on the journey map. This test measures how fast two players can send data. Both players need Road to Sixty: Together.")
     local box = CreateFrame("EditBox", nil, body, "InputBoxTemplate")
     box:SetSize(150, 22)
     box:SetPoint("TOPLEFT", LEFT + 6, y)
@@ -296,6 +308,7 @@ local function BuildFriends()
     end)
     run:SetScript("OnLeave", GameTooltip_Hide)
     y = y - 30
+    Choice(AUTO_SYNC)
 end
 
 -- The scrolling part of the panel: the game's scroll frame with its bar at
@@ -323,13 +336,13 @@ local function Build()
 
     local notes = body:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
     notes:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
-    notes:SetText("Everything in Road to Sixty, plus With Friends' extra tracking.")
+    notes:SetText("Everything in Road to Sixty, plus Together's extra tracking. Based on the efforts of Hotdoghands' Road to Sixty.")
 
     y = -50
     BuildCharacters()
     BuildFriends()
 
-    Heading("With Friends tracking")
+    Heading("Together tracking")
     Check(BUTTON)
     for _, option in ipairs(TRACKING) do
         Check(option)
